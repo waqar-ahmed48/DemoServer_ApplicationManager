@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "go-app.fullname" . }}
+  labels:
+    {{- include "go-app.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "go-app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "go-app.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_HOST
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_HOST
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_PORT
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_PORT
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_USERNAME
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_USERNAME
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_PASSWORD
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_PASSWORD
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_CONNECTIONPOOLSIZE
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RO_CONNECTIONPOOLSIZE
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_CONNECTIONPOOLSIZE
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_RW_CONNECTIONPOOLSIZE
+          - name: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_SSLMODE
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_POSTGRES_SSLMODE
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_HOST
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_HOST
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_PORT
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_PORT
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_ROLE_ID
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_ROLE_ID
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_SECRET_ID
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_SECRET_ID
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_TLSSKIPVERIFY
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_TLSSKIPVERIFY
+          - name: DEMOSERVER_APPLICATIONMANAGER_VAULT_HTTPS
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_VAULT_HTTPS
+          - name: DEMOSERVER_APPLICATIONMANAGER_OTLP_HOST
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_OTLP_HOST
+          - name: DEMOSERVER_APPLICATIONMANAGER_OTLP_PORT
+            valueFrom:
+              secretKeyRef:
+                name: demoserver-applicationmanager
+                key: DEMOSERVER_APPLICATIONMANAGER_OTLP_PORT

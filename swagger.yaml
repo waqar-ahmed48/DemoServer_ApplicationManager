@@ -1,0 +1,351 @@
+basePath: /v1/connectionmgmt
+consumes:
+    - application/json
+definitions:
+    AWSConnection:
+        description: AWSConnection represents AWSConnection resource serialized by Microservice endpoints
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    AWSConnectionPatchWrapper:
+        title: AWSConnectionPatchWrapper represents AWSConnection attributes for PATCH request body schema.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    AWSConnectionPostWrapper:
+        title: AWSConnectionPostWrapper represents AWSConnection attributes for POST request body schema.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    AWSConnectionResponseWrapper:
+        description: AWSConnectionResponseWrapper represents limited information AWSConnection resource returned by Post, Get and List endpoints
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    AWSConnectionsResponse:
+        title: AWSConnectionsResponse represents AWS Connection attributes which are returned in response of GET on connections/aws endpoint.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    Connection:
+        description: |-
+            Connection represents generic Connection resource returned by Microservice endpoints
+            Different types of connections (for example: AWSConnection) contains an object of
+            Connection inside.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    ConnectionPatchWrapper:
+        title: Connection represents generic Connection attributes which are allowed in PATCH request.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    ConnectionPostWrapper:
+        title: Connection represents generic Connection attributes which are allowed in POST request.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    ConnectionsResponse:
+        title: ConnectionsResponse represents generic Connection attributes which are returned in response of GET on connections endpoint.
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    DeleteAWSConnectionResponse:
+        description: DeleteAWSConnectionResponse represents Response schema for DELETE - DeleteAWSConnection
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+    ErrorResponse:
+        description: |-
+            ErrorResponse represents information returned by Microservice endpoints in case that was an error
+            in normal execution flow.
+        x-go-package: DemoServer_APPLICATIONMANAGER/helper
+    StatusResponse:
+        description: Response schema for APPLICATIONMANAGER Status GET
+        x-go-package: DemoServer_APPLICATIONMANAGER/handlers
+    TestAWSConnectionResponse:
+        description: TestAWSConnectionResponse Response schema for GET - TestAWSConnection
+        x-go-package: DemoServer_APPLICATIONMANAGER/data
+info:
+    contact:
+        email: muhammad.w.ahmed.48@gmail.com
+        name: Muhammad Ahmed
+    description: |-
+        Connection defines cloud account connection for applicaiton deployment, spin up and down.
+        APPLICATIONMANAGER serves as one stop shop for CRUD as well as connectivity testing capabilities for all connection types for DemoServer.
+    termsOfService: there are no TOS at this moment, use at your own risk we take no responsibility
+    title: DemoServer_APPLICATIONMANAGER API.
+    version: 1.0.0
+paths:
+    /Test:
+        get:
+            description: |-
+                Endpoint: GET - /v1/connectionmgmt/connection/aws/test/{connectionid}
+
+                Description: Test connectivity of specified AWSConnection resource.
+            operationId: TestAWSConnection
+            parameters:
+                - description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+                  in: query
+                  name: connectionid
+                  required: true
+                  type: string
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: Connectivity test status
+                    schema:
+                        $ref: '#/definitions/TestAWSConnectionResponse'
+                "404":
+                    description: Resource not found. Resources are filtered based on connectiontype = AWSConnectionType. If connectionid of Non-AWSConnection is provided ResourceNotFound error is returned.
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: Test AWS Connection
+            tags:
+                - AWSConnection
+    /aws:
+        delete:
+            description: |-
+                Endpoint: DELETE - /v1/connectionmgmt/connection/aws/{connectionid}
+
+                Description: Returns AWSConnection resource based on connectionid.
+            operationId: DeleteAWSConnection
+            parameters:
+                - description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+                  in: query
+                  name: connectionid
+                  required: true
+                  type: string
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: Resource successfully deleted.
+                    schema:
+                        $ref: '#/definitions/DeleteAWSConnectionResponse'
+                "404":
+                    description: Resource not found.
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: Delete AWS Connection
+            tags:
+                - AWSConnection
+        patch:
+            consumes:
+                - application/json
+            description: |-
+                Endpoint: PATCH - /v1/connectionmgmt/connection/aws/{connectionid}
+
+                Description: Update attributes of AWSConnection resource. Update operation resets Tested status of AWSConnection.
+            operationId: UpdateAWSConnection
+            parameters:
+                - description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+                  in: query
+                  name: connectionid
+                  required: true
+                  type: string
+                - description: JSON string defining AWSConnection resource. Change of connectiontype and ID attributes is not allowed.
+                  in: body
+                  name: Body
+                  required: true
+                  schema:
+                    $ref: '#/definitions/AWSConnectionPatchWrapper'
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: AWSConnection resource after updates.
+                    schema:
+                        $ref: '#/definitions/AWSConnection'
+                "400":
+                    description: Bad request or parameters
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: Update AWS Connection
+            tags:
+                - AWSConnection
+        post:
+            consumes:
+                - application/json
+            description: |-
+                Endpoint: POST - /v1/connectionmgmt/connection/aws
+
+                Description: Create new AWSConnection resource.
+            operationId: AddAWSConnection
+            parameters:
+                - description: JSON string defining AWSConnection resource
+                  in: body
+                  name: Body
+                  required: true
+                  schema:
+                    $ref: '#/definitions/AWSConnectionPostWrapper'
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: AWSConnection resource just created.
+                    schema:
+                        $ref: '#/definitions/AWSConnection'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: New AWS Connection
+            tags:
+                - AWSConnection
+    /connection:
+        get:
+            description: |-
+                Endpoint: GET - /v1/connectionmgmt/connection/aws/{connectionid}
+
+                Description: Returns AWSConnection resource based on connectionid.
+            operationId: GetAWSConnection
+            parameters:
+                - description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+                  in: query
+                  name: connectionid
+                  required: true
+                  type: string
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: AWSConnection resource
+                    schema:
+                        $ref: '#/definitions/AWSConnection'
+                "404":
+                    description: Resource not found. Resources are filtered based on connectiontype = AWSConnectionType. If connectionid of Non-AWSConnection is provided ResourceNotFound error is returned.
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: Retrieve AWS Connection
+            tags:
+                - AWSConnection
+    /connections:
+        get:
+            description: |-
+                Endpoint: GET - /v1/connectionmgmt/connections
+
+                Description: Returns list of generic connections resources. It is useful to list all connections
+                currently in APPLICATIONMANAGER. Generic Connection resource does not have specific details
+                and attributes of specialized connection types. It only tracks general information about
+                connection including its type.
+            operationId: GetConnections
+            parameters:
+                - description: maximum number of results to return.
+                  format: int32
+                  in: query
+                  name: limit
+                  type: integer
+                - description: number of results to be skipped from beginning of list
+                  format: int32
+                  in: query
+                  name: skip
+                  type: integer
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: List of AWSConnection resources
+                    schema:
+                        items:
+                            $ref: '#/definitions/AWSConnection'
+                        type: array
+                "400":
+                    description: Issues with parameters or their value
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: List Connections
+            tags:
+                - Connection
+    /connections/aws:
+        get:
+            description: |-
+                Endpoint: GET - /v1/connectionmgmt/connections/aws
+
+                Description: Returns list of AWSConnection resources. Each AWSConnection resource
+                contains underlying generic Connection resource as well as AWSConnection
+                specific attributes.
+            operationId: GetAWSConnections
+            parameters:
+                - description: maximum number of results to return.
+                  format: int32
+                  in: query
+                  name: limit
+                  type: integer
+                - description: number of results to be skipped from beginning of list
+                  format: int32
+                  in: query
+                  name: skip
+                  type: integer
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: List of AWSConnection resources
+                    schema:
+                        items:
+                            $ref: '#/definitions/AWSConnection'
+                        type: array
+                "400":
+                    description: Issues with parameters or their value
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                "500":
+                    description: Internal server error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: List AWS Connections
+            tags:
+                - AWSConnection
+    /status:
+        get:
+            description: |-
+                Endpoint: GET - /v1/connectionmgmt/status
+
+
+                Description: Returns status of APPLICATIONMANAGER Instance
+            operationId: GetStatus
+            produces:
+                - application/json
+            responses:
+                "200":
+                    description: StatusReponse
+                    schema:
+                        $ref: '#/definitions/StatusResponse'
+                default:
+                    description: unexpected error
+                    schema:
+                        $ref: '#/definitions/ErrorResponse'
+            summary: GET - Status
+            tags:
+                - Status
+produces:
+    - application/json
+schemes:
+    - http
+swagger: "2.0"

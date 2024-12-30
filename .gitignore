@@ -1,0 +1,6 @@
+*.exe
+*.gz
+*redis-data
+.dockerenv
+DemoServer_ApplicationManager
+cover.out
