@@ -4,3 +4,4 @@
 .dockerenv
 DemoServer_ApplicationManager
 cover.out
+__debug_bin*/
