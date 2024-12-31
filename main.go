@@ -133,20 +133,20 @@ func main() {
 		os.Exit(2)
 	}
 
-	getAppRouter := r.Methods(http.MethodGet).Subrouter()
-	getAppRouter.HandleFunc("/v1/applicationmgmt/applications", ah.GetApplications)
-	getAppRouter.Use(otelhttp.NewMiddleware("GET /applications"))
-	getAppRouter.Use(ah.MVApplicationsGet)
+	getAppsRouter := r.Methods(http.MethodGet).Subrouter()
+	getAppsRouter.HandleFunc("/v1/applicationmgmt/applications", ah.GetApplications)
+	getAppsRouter.Use(otelhttp.NewMiddleware("GET /applications"))
+	getAppsRouter.Use(ah.MVApplicationsGet)
 
-	getAppRouterWithID := r.Methods(http.MethodGet).Subrouter()
-	getAppRouterWithID.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}", ah.GetApplication)
-	getAppRouterWithID.Use(otelhttp.NewMiddleware("GET /application"))
-	getAppRouterWithID.Use(ah.MVApplication)
+	getAppRouter := r.Methods(http.MethodGet).Subrouter()
+	getAppRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}", ah.GetApplication)
+	getAppRouter.Use(otelhttp.NewMiddleware("GET /application"))
+	getAppRouter.Use(ah.MVApplication)
 
 	postAppRouter := r.Methods(http.MethodPost).Subrouter()
 	postAppRouter.HandleFunc("/v1/applicationmgmt/application", ah.AddApplication)
 	postAppRouter.Use(otelhttp.NewMiddleware("POST /application"))
-	postAppRouter.Use(ah.MVApplicationPost)
+	postAppRouter.Use(ah.MVAddApplication)
 
 	patchAppRouter := r.Methods(http.MethodPatch).Subrouter()
 	patchAppRouter.HandleFunc("/v1/applicationmgmt/application{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}", ah.UpdateApplication)
@@ -163,10 +163,10 @@ func main() {
 	getVersionsRouter.Use(otelhttp.NewMiddleware("GET /application/versions"))
 	getVersionsRouter.Use(ah.MVVersionsGet)
 
-	getVersionRouterWithID := r.Methods(http.MethodGet).Subrouter()
-	getVersionRouterWithID.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/version/{versionid:[0-9]{4}}", ah.GetVersion)
-	getVersionRouterWithID.Use(otelhttp.NewMiddleware("GET /application/version"))
-	getVersionRouterWithID.Use(ah.MVVersion)
+	getVersionRouter := r.Methods(http.MethodGet).Subrouter()
+	getVersionRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/version/{versionid:[0-9]{4}}", ah.GetVersion)
+	getVersionRouter.Use(otelhttp.NewMiddleware("GET /application/version"))
+	getVersionRouter.Use(ah.MVVersion)
 
 	createVersionRouter := r.Methods(http.MethodPost).Subrouter()
 	createVersionRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/version", ah.AddVersion)
@@ -178,10 +178,10 @@ func main() {
 	patchVersionRouter.Use(otelhttp.NewMiddleware("PATCH /application/version"))
 	patchVersionRouter.Use(ah.MVVersionUpdate)
 
-	archiveVersionRouter := r.Methods(http.MethodPost).Subrouter()
-	archiveVersionRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/version/{versionid:[0-9]{4}}/archive", ah.ArchiveVersion)
-	archiveVersionRouter.Use(otelhttp.NewMiddleware("DELETE /application/version/archive"))
-	archiveVersionRouter.Use(ah.MVVersionArchive)
+	setVersionStateRouter := r.Methods(http.MethodPost).Subrouter()
+	setVersionStateRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/version/{versionid:[0-9]{4}}/state", ah.SetVersionState)
+	setVersionStateRouter.Use(otelhttp.NewMiddleware("POST /application/version/state"))
+	setVersionStateRouter.Use(ah.MVSetVersionState)
 
 	queryAuditRouter := r.Methods(http.MethodGet).Subrouter()
 	queryAuditRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/audit/query", ah.QueryAudit)

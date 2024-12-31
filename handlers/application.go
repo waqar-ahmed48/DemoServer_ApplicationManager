@@ -729,7 +729,14 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	a := r.Context().Value(KeyApplicationRecord{}).(*data.Application)
+	p := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
+
+	a := data.NewApplication(h.cfg)
+
+	utilities.CopyMatchingFields(p, a)
+
+	//set dummy ownerid for now.
+	a.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
 	// Begin a transaction
 	tx := h.pd.RWDB().Begin()
@@ -802,17 +809,47 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var c_wrapper data.ApplicationResponseWrapper
+	applicationid := a.ID
+	var application data.Application
 
-	_ = utilities.CopyMatchingFields(a, &c_wrapper)
+	result = h.pd.RODB().First(&application, "id = ?", applicationid)
 
-	err = json.NewEncoder(w).Encode(c_wrapper)
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	var oRespConn data.ApplicationResponseWrapper
+	_ = utilities.CopyMatchingFields(application, &oRespConn)
+
+	err = json.NewEncoder(w).Encode(oRespConn)
 
 	if err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
-
-	a = nil
 }
 
 func (h *ApplicationHandler) RunAll(w http.ResponseWriter, r *http.Request) {
@@ -837,7 +874,7 @@ func (h *ApplicationHandler) RunAll(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -868,7 +905,7 @@ func (h *ApplicationHandler) RenderJson(w http.ResponseWriter, r *http.Request) 
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -899,7 +936,7 @@ func (h *ApplicationHandler) Test(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -930,7 +967,7 @@ func (h *ApplicationHandler) Untaint(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -961,7 +998,7 @@ func (h *ApplicationHandler) Taint(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -992,7 +1029,7 @@ func (h *ApplicationHandler) ValidateInputs(w http.ResponseWriter, r *http.Reque
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1023,7 +1060,7 @@ func (h *ApplicationHandler) Providers(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1054,7 +1091,7 @@ func (h *ApplicationHandler) ForceUnlock(w http.ResponseWriter, r *http.Request)
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1085,7 +1122,7 @@ func (h *ApplicationHandler) HclFmt(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1115,7 +1152,7 @@ func (h *ApplicationHandler) Fmt(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1145,7 +1182,7 @@ func (h *ApplicationHandler) Init(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1175,7 +1212,7 @@ func (h *ApplicationHandler) HclValidate(w http.ResponseWriter, r *http.Request)
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1205,7 +1242,7 @@ func (h *ApplicationHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1235,7 +1272,7 @@ func (h *ApplicationHandler) Plan(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1265,7 +1302,7 @@ func (h *ApplicationHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1295,7 +1332,7 @@ func (h *ApplicationHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1325,7 +1362,7 @@ func (h *ApplicationHandler) TGVersion(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1355,7 +1392,7 @@ func (h *ApplicationHandler) TofuVersion(w http.ResponseWriter, r *http.Request)
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1385,7 +1422,7 @@ func (h *ApplicationHandler) Output(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1415,7 +1452,7 @@ func (h *ApplicationHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1445,7 +1482,7 @@ func (h *ApplicationHandler) GraphTofu(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1475,7 +1512,7 @@ func (h *ApplicationHandler) CreateWorkspace(w http.ResponseWriter, r *http.Requ
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1505,7 +1542,7 @@ func (h *ApplicationHandler) DeleteWorkspace(w http.ResponseWriter, r *http.Requ
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1535,7 +1572,7 @@ func (h *ApplicationHandler) ShowWorkspace(w http.ResponseWriter, r *http.Reques
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1565,7 +1602,7 @@ func (h *ApplicationHandler) SelectWorkspace(w http.ResponseWriter, r *http.Requ
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1595,7 +1632,7 @@ func (h *ApplicationHandler) GetWorkspaces(w http.ResponseWriter, r *http.Reques
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1625,7 +1662,7 @@ func (h *ApplicationHandler) ImportStateResource(w http.ResponseWriter, r *http.
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1655,7 +1692,7 @@ func (h *ApplicationHandler) RemoveStateResource(w http.ResponseWriter, r *http.
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1685,7 +1722,7 @@ func (h *ApplicationHandler) MoveStateResource(w http.ResponseWriter, r *http.Re
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1715,7 +1752,7 @@ func (h *ApplicationHandler) ListState(w http.ResponseWriter, r *http.Request) {
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1745,7 +1782,7 @@ func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Reque
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1775,7 +1812,7 @@ func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Reques
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1805,7 +1842,7 @@ func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) 
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1835,7 +1872,7 @@ func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Reque
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1865,7 +1902,7 @@ func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Reques
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1895,7 +1932,7 @@ func (h *ApplicationHandler) AddVersion(w http.ResponseWriter, r *http.Request) 
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1925,7 +1962,7 @@ func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) 
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,
@@ -1955,7 +1992,37 @@ func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request)
 	helper.ReturnErrorWithAdditionalInfo(
 		cl,
 		http.StatusInternalServerError,
-		helper.ErrorDatastoreSaveFailed,
+		helper.ErrorNotImplemented,
+		requestid,
+		r,
+		&w,
+		err,
+		span)
+}
+
+func (h *ApplicationHandler) SetVersionState(w http.ResponseWriter, r *http.Request) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	defer span.End()
+
+	// Add trace context to the logger
+	traceLogger := h.l.With(
+		slog.String("trace_id", span.SpanContext().TraceID().String()),
+		slog.String("span_id", span.SpanContext().SpanID().String()),
+	)
+
+	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+
+	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
+
+	err := helper.ErrNotImplemented
+
+	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+
+	helper.ReturnErrorWithAdditionalInfo(
+		cl,
+		http.StatusInternalServerError,
+		helper.ErrorNotImplemented,
 		requestid,
 		r,
 		&w,

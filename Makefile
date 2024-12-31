@@ -36,7 +36,7 @@ build: swagger
 	
 	@echo  "Go build app..."
 	go build -mod=mod
-	chmod +x DemoServer_APPLICATIONMANAGER
+	chmod +x DemoServer_ApplicationManager
 
 ifeq ($(config), testdocker)
 rundocker: build
@@ -168,7 +168,7 @@ runstandalone: build
 	rm -f ./e2e_test/coverage_reports/TestResults*
 
 	#kill any instance if already running.
-	pkill DemoServer_APPLICATIONMANAGER || true
+	pkill DemoServer_ApplicationManager || true
 	docker-compose down || true
 	docker rm -f jaeger || true
 
@@ -184,7 +184,7 @@ teststandalone: runstandalone
 	docker run -d --rm --name jaeger -p4318:4318 -p16686:16686 -p14268:14268 jaegertracing/all-in-one:latest
 
 	#bring up application
-	GOCOVERDIR=./e2e_test/coverage_reports ./DemoServer_APPLICATIONMANAGER >DemoServer_APPLICATIONMANAGER.log &
+	GOCOVERDIR=./e2e_test/coverage_reports ./DemoServer_ApplicationManager >DemoServer_ApplicationManager.log &
 	
 	until curl http://localhost:5678/v1/applicationmgmt/status; do printf '.';sleep 1;done
 
@@ -200,7 +200,7 @@ teststandalone: runstandalone
 	go test -timeout 300s -run TestEndtoEndSuite/TestNegative_PostgresDown_ ./...
 
 	#bring down stack
-	pkill -f -SIGINT DemoServer_APPLICATIONMANAGER
+	pkill -f -SIGINT DemoServer_ApplicationManager
 
 	#generate coverage reports
 	go tool covdata percent -i=./e2e_test/coverage_reports

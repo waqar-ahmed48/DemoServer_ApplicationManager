@@ -1,19 +1,23 @@
 server:
   port: 5679
   app_name: DemoServer
-  microservice_name: APPLICATIONMANAGER
-  prefix_main: DemoServer_APPLICATIONMANAGER
-  prefix_worker: DemoServer_APPLICATIONMANAGER_Worker
+  microservice_name: ApplicationManager
+  prefix_main: DemoServer_ApplicationManager
+  prefix_worker: DemoServer_ApplicationManager_Worker
   http_read_timeout: 300
   http_write_timeout: 300
   http_idle_timeout: 300
   http_shutdown_timeout: 30
   worker_sleep_time: 5
   list_limit: 10
+storage:
+  packages_root_path: "./packages"
+  upload_root_path: "./uploads"
+  download_root_path: "./downloads"
 configuration:
   refresh_cycle: 60
   log_folder: ./logs
-  log_file: DemoServer_APPLICATIONMANAGER_log.json
+  log_file: DemoServer_ApplicationManager_log.json
 postgres:
   host: 127.0.0.1
   port: 5432

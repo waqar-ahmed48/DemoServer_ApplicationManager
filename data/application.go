@@ -10,18 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Connection represents generic Connection attributes which are allowed in POST request.
-//
-// swagger:model
-type ConnectionPostWrapper struct {
-}
-
-// Connection represents generic Connection attributes which are allowed in PATCH request.
-//
-// swagger:model
-type ConnectionPatchWrapper struct {
-}
-
 // Application represents generic Application resource returned by Microservice endpoints
 //
 // swagger:model
@@ -29,6 +17,8 @@ type Application struct {
 	ID        uuid.UUID `json:"id" gorm:"primaryKey"`
 	CreatedAt time.Time `json:"createdat" gorm:"autoCreateTime;index;not null"`
 	UpdatedAt time.Time `json:"updatedat" gorm:"autoUpdateTime;index"`
+
+	OwnerID string `json:"ownerid" validate:"required,uuid4" gorm:"index;not null"`
 
 	// User friendly name for Application
 	// required: true
@@ -38,7 +28,11 @@ type Application struct {
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
-	ConnectionID uuid.UUID `json:"connectionid" gorm:"index"`
+	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
+
+	Versions []Version `json:"versions"`
+
+	AuditTrail []Audit `json:"audit_trail"`
 }
 
 // ApplicationsResponse represents generic Application attributes which are returned in response of GET on applications endpoint.
@@ -65,6 +59,15 @@ type ApplicationsResponse struct {
 // AWSConnectionPostWrapper represents AWSConnection attributes for POST request body schema.
 // swagger:model
 type ApplicationPostWrapper struct {
+	// User friendly name for Application
+	// required: true
+	Name string `json:"name" validate:"required" gorm:"index;not null;unique"`
+
+	// Description of Application
+	// required: false
+	Description string `json:"description" gorm:"index"`
+
+	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
 }
 
 // ApplicationPatchWrapper represents Application attributes for PATCH request body schema.
@@ -72,9 +75,24 @@ type ApplicationPostWrapper struct {
 type ApplicationPatchWrapper struct {
 }
 
-// ApplicationResponseWrapper represents limited information Application resource returned by Post, Get and List endpoints
+// ApplicationResponseWrapper represents information Application resource returned by Post, Get and List endpoints
 // swagger:model
 type ApplicationResponseWrapper struct {
+	ID        uuid.UUID `json:"id" gorm:"primaryKey"`
+	CreatedAt time.Time `json:"createdat" gorm:"autoCreateTime;index;not null"`
+	UpdatedAt time.Time `json:"updatedat" gorm:"autoUpdateTime;index"`
+
+	OwnerID string `json:"ownerid" validate:"required,uuid4" gorm:"index;not null"`
+
+	// User friendly name for Application
+	// required: true
+	Name string `json:"name" validate:"required" gorm:"index;not null;unique"`
+
+	// Description of Application
+	// required: false
+	Description string `json:"description" gorm:"index"`
+
+	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
 }
 
 // DeleteApplicationResponse represents Response schema for DELETE - Application
@@ -129,5 +147,5 @@ func (a *Application) ToJSON(w io.Writer) error {
 }
 
 func (a *Application) Initialize() {
-	return
+
 }

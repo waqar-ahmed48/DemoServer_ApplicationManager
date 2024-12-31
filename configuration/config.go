@@ -25,6 +25,12 @@ type Config struct {
 		ListLimit           int    `yaml:"list_limit" env:"DEMOSERVER_APPLICATIONMANAGER_LIST_LIMIT"`
 	} `yaml:"server"`
 
+	Storage struct {
+		PackagesRootPath string `yaml:"packages_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_PACKAGES_ROOT_PATH"`
+		UploadRootPath   string `yaml:"upload_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_UPLOAD_ROOT_PATH"`
+		DownloadRootPath string `yaml:"download_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_DOWNLOAD_ROOT_PATH"`
+	} `yaml:"storage"`
+
 	Configuration struct {
 		RefreshCycle int    `yaml:"refresh_cycle" env:"DEMOSERVER_APPLICATIONMANAGER_CONFIGURATION_REFRESH_CYCLE"`
 		LogFolder    string `yaml:"log_folder" env:"DEMOSERVER_APPLICATIONMANAGER_CONFIGURATION_LOG_FOLDER"`
