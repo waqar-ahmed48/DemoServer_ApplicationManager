@@ -165,6 +165,9 @@ const (
 
 	//ErrorApplicationIDInvalid represents invalid applicationid.
 	ErrorApplicationIDInvalid
+
+	//ErrorNotImplemented represents operation not implemented.
+	ErrorNotImplemented
 )
 
 // Error represent the details of error occurred.
@@ -208,6 +211,7 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorVaultAuthenticationFailed:                      {"ApplicationManager_Err_000030", "Vault authentication failed", ""},
 	ErrorVaultTLSConfigurationFailed:                    {"ApplicationManager_Err_000031", "Vault TLS Configuration failed", ""},
 	ErrorApplicationIDInvalid:                           {"ApplicationManager_Err_000032", "ApplicationID is Invalid", ""},
+	ErrorNotImplemented:                                 {"ApplicationManager_Err_000033", "Operation Not Implemented", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error
