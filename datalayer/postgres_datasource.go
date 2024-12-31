@@ -107,7 +107,7 @@ func NewPostgresDataSource(c *configuration.Config, l *slog.Logger) (*PostgresDa
 }
 
 func (d *PostgresDataSource) AutoMigrate() error {
-	return d.rwdb.AutoMigrate(&data.AWSConnection{})
+	return d.rwdb.AutoMigrate(&data.Application{})
 }
 
 func (d *PostgresDataSource) RODB() *gorm.DB {

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/waqar-ahmed48/DemoServer_ApplicationManager/utilities"
+	"DemoServer_ApplicationManager/utilities"
 )
 
 const (

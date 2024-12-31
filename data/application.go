@@ -14,46 +14,12 @@ import (
 //
 // swagger:model
 type ConnectionPostWrapper struct {
-	// User friendly name for Connection
-	// required: true
-	Name string `json:"name" validate:"required" gorm:"index;not null;unique"`
-
-	// Description of Connection
-	// required: false
-	Description string `json:"description" gorm:"index"`
-
-	// Type of connection.
-	// required: true
-	ConnectionType ConnectionTypeEnum `json:"connectiontype" gorm:"index;not null"`
-
-	// Latest connectivity test result. 0 = Failed. 1 = Successful
-	// required: false
-	TestSuccessful int `json:"testsuccessful"`
-
-	// Descriptive error for latest connectivity test
-	// required: false
-	TestError string `json:"testerror"`
-
-	// Date and time of latest connectivity test whether it was successful or not
-	// required: false
-	TestedOn string `json:"testedon"`
-
-	// Date and time of latest successful connectivity test
-	// required: false
-	LastSuccessfulTest string `json:"lastsuccessfultest"`
 }
 
 // Connection represents generic Connection attributes which are allowed in PATCH request.
 //
 // swagger:model
 type ConnectionPatchWrapper struct {
-	// User friendly name for Connection
-	// required: true
-	Name string `json:"name" validate:"required" gorm:"index;not null;unique"`
-
-	// Description of Connection
-	// required: false
-	Description string `json:"description" gorm:"index"`
 }
 
 // Application represents generic Application resource returned by Microservice endpoints
@@ -93,7 +59,7 @@ type ApplicationsResponse struct {
 
 	// Connection resource objects
 	// required: true
-	Applications []Application `json:"applications"`
+	Applications []ApplicationResponseWrapper `json:"applications"`
 }
 
 // AWSConnectionPostWrapper represents AWSConnection attributes for POST request body schema.

@@ -13,6 +13,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ErrorTypeEnum is the type enum log dictionary for microservice.
+type ErrorTypeEnum int
+
 var (
 	// ErrNone is used where there is yet we have to provide error type to report.
 	ErrNone = errors.New("no error")
@@ -56,9 +59,6 @@ var (
 	//ErrVaultFailToConfigureAWSSecretsEngine failed to enable Vault's AWS secrets engine
 	ErrVaultFailToConfigureAWSSecretsEngine = errors.New("failed to configure Vault's AWS secrets engine")
 )
-
-// ErrorTypeEnum is the type enum log dictionary for microservice.
-type ErrorTypeEnum int
 
 const (
 	//ErrorNone represents no error.
@@ -162,6 +162,9 @@ const (
 
 	//ErrorOTLPCollectorNotAvailable represents error message for OTLP Collector not available.
 	ErrorOTLPCollectorNotAvailable
+
+	//ErrorApplicationIDInvalid represents invalid applicationid.
+	ErrorApplicationIDInvalid
 )
 
 // Error represent the details of error occurred.
@@ -177,40 +180,34 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	InfoDemoServerApplicationManagerStatusUP:   {"ApplicationManager_Info_000002", "UP", ""},
 	InfoDemoServerApplicationManagerStatusDOWN: {"ApplicationManager_Info_000003", "DOWN", ""},
 
-	DebugApplicationTestFailed: {"ApplicationManager_Debug_000001", "Application Test Failed", ""},
 	DebugDatastoreConnectionUP: {"ApplicationManager_Debug_000002", "Datastore connection UP", ""},
 
-	ErrorNone:                                             {"ApplicationManager_Err_000000", "No error", ""},
-	ErrorConnectionIDInvalid:                              {"ApplicationManager_Err_000001", "ConnectionID is Invalid", ""},
-	ErrorResourceNotFound:                                 {"ApplicationManager_Err_000002", "Resource not found", ""},
-	ErrorInvalidValueForLimit:                             {"ApplicationManager_Err_000003", "Invalid value for Limit parameter", ""},
-	ErrorLimitMustBeGtZero:                                {"ApplicationManager_Err_000004", "Limit is expected to be greater than or equal to 0 when present", ""},
-	ErrorInvalidValueForSkip:                              {"ApplicationManager_Err_000005", "Invalid value for Skip parameter", ""},
-	ErrorSkipMustBeGtZero:                                 {"ApplicationManager_Err_000006", "Skip is expected to be greater than or equal to 0 when present", ""},
-	ErrorDatastoreRetrievalFailed:                         {"ApplicationManager_Err_000007", "Failed to retrieve from datastore", ""},
-	ErrorDatalayerConversionFailed:                        {"ApplicationManager_Err_000008", "Failed to convert datastore document to object", ""},
-	ErrorDatastoreSaveFailed:                              {"ApplicationManager_Err_000009", "Failed to save resource in datastore", ""},
-	ErrorInvalidJSONSchemaForParameter:                    {"ApplicationManager_Err_000010", "Invalid JSON Schema for parameter passed", ""},
-	ErrorInvalidConnectionType:                            {"ApplicationManager_Err_000011", "Invalid connection type", ""},
-	ErrorDatastoreDeleteFailed:                            {"ApplicationManager_Err_000012", "Failed to delete resource from datastore", ""},
-	ErrorConnectionTypeUpdateNotAllowed:                   {"ApplicationManager_Err_000013", "ConnectionType attribute can not be patched", ""},
-	ErrorAWSConnectionPatchInvalidValueForTitle:           {"ApplicationManager_Err_000014", "Invalid value for Title. string expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForDescription:     {"ApplicationManager_Err_000015", "Invalid value for description. string expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForAccessKey:       {"ApplicationManager_Err_000016", "Invalid value for AccessKey. string expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForSecretAccessKey: {"ApplicationManager_Err_000017", "Invalid value for SecretAccessKey. string expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForRegion:          {"ApplicationManager_Err_000018", "Invalid value for region. string expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForDefaultLeaseTTL: {"ApplicationManager_Err_000021", "Invalid value for DefaultLeaseTTL. int expected", ""},
-	ErrorAWSConnectionPatchInvalidValueForMaxLeaseTTL:     {"ApplicationManager_Err_000022", "Invalid value for MaxLeaseTTL. int expected", ""},
-	ErrorDatastoreNotAvailable:                            {"ApplicationManager_Err_000023", "Datastore connection down", ""},
-	ErrorJSONEncodingFailed:                               {"ApplicationManager_Err_000024", "JSON Ecoding Failed", ""},
-	ErrorHTTPServerShutdownFailed:                         {"ApplicationManager_Err_000025", "HTTP Server Shutdown failed", ""},
-	ErrorAWSConnectionPatchInvalidValueForConnectionType:  {"ApplicationManager_Err_000026", "Invalid value for connectiontype. string expected", ""},
-	ErrorDatastoreConnectionCloseFailed:                   {"ApplicationManager_Err_000027", "Failed to close datastore connection", ""},
-	ErrorDatastoreFailedToCreateDB:                        {"ApplicationManager_Err_000028", "Failed to create database in datastore", ""},
-	ErrorVaultNotAvailable:                                {"ApplicationManager_Err_000029", "Vault connection down", ""},
-	ErrorVaultAuthenticationFailed:                        {"ApplicationManager_Err_000030", "Vault authentication failed", ""},
-	ErrorVaultTLSConfigurationFailed:                      {"ApplicationManager_Err_000031", "Vault TLS Configuration failed", ""},
-	ErrorApplicationIDInvalid:                             {"ApplicationManager_Err_000032", "ApplicationID is Invalid", ""},
+	ErrorNone:                                           {"ApplicationManager_Err_000000", "No error", ""},
+	ErrorConnectionIDInvalid:                            {"ApplicationManager_Err_000001", "ConnectionID is Invalid", ""},
+	ErrorResourceNotFound:                               {"ApplicationManager_Err_000002", "Resource not found", ""},
+	ErrorInvalidValueForLimit:                           {"ApplicationManager_Err_000003", "Invalid value for Limit parameter", ""},
+	ErrorLimitMustBeGtZero:                              {"ApplicationManager_Err_000004", "Limit is expected to be greater than or equal to 0 when present", ""},
+	ErrorInvalidValueForSkip:                            {"ApplicationManager_Err_000005", "Invalid value for Skip parameter", ""},
+	ErrorSkipMustBeGtZero:                               {"ApplicationManager_Err_000006", "Skip is expected to be greater than or equal to 0 when present", ""},
+	ErrorDatastoreRetrievalFailed:                       {"ApplicationManager_Err_000007", "Failed to retrieve from datastore", ""},
+	ErrorDatalayerConversionFailed:                      {"ApplicationManager_Err_000008", "Failed to convert datastore document to object", ""},
+	ErrorDatastoreSaveFailed:                            {"ApplicationManager_Err_000009", "Failed to save resource in datastore", ""},
+	ErrorInvalidJSONSchemaForParameter:                  {"ApplicationManager_Err_000010", "Invalid JSON Schema for parameter passed", ""},
+	ErrorDatastoreDeleteFailed:                          {"ApplicationManager_Err_000012", "Failed to delete resource from datastore", ""},
+	ErrorApplicationPatchInvalidValueForTitle:           {"ApplicationManager_Err_000014", "Invalid value for Title. string expected", ""},
+	ErrorApplicationPatchInvalidValueForDescription:     {"ApplicationManager_Err_000015", "Invalid value for description. string expected", ""},
+	ErrorApplicationPatchInvalidValueForRegion:          {"ApplicationManager_Err_000018", "Invalid value for region. string expected", ""},
+	ErrorApplicationPatchInvalidValueForDefaultLeaseTTL: {"ApplicationManager_Err_000021", "Invalid value for DefaultLeaseTTL. int expected", ""},
+	ErrorApplicationPatchInvalidValueForMaxLeaseTTL:     {"ApplicationManager_Err_000022", "Invalid value for MaxLeaseTTL. int expected", ""},
+	ErrorDatastoreNotAvailable:                          {"ApplicationManager_Err_000023", "Datastore connection down", ""},
+	ErrorJSONEncodingFailed:                             {"ApplicationManager_Err_000024", "JSON Ecoding Failed", ""},
+	ErrorHTTPServerShutdownFailed:                       {"ApplicationManager_Err_000025", "HTTP Server Shutdown failed", ""},
+	ErrorDatastoreConnectionCloseFailed:                 {"ApplicationManager_Err_000027", "Failed to close datastore connection", ""},
+	ErrorDatastoreFailedToCreateDB:                      {"ApplicationManager_Err_000028", "Failed to create database in datastore", ""},
+	ErrorVaultNotAvailable:                              {"ApplicationManager_Err_000029", "Vault connection down", ""},
+	ErrorVaultAuthenticationFailed:                      {"ApplicationManager_Err_000030", "Vault authentication failed", ""},
+	ErrorVaultTLSConfigurationFailed:                    {"ApplicationManager_Err_000031", "Vault TLS Configuration failed", ""},
+	ErrorApplicationIDInvalid:                           {"ApplicationManager_Err_000032", "ApplicationID is Invalid", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error
