@@ -1,5 +1,5 @@
 server:
-  port: 5678
+  port: 5679
   app_name: DemoServer
   microservice_name: APPLICATIONMANAGER
   prefix_main: DemoServer_APPLICATIONMANAGER
@@ -42,6 +42,3 @@ otlp:
 datalayer:
   name_prefix: DemoServer_APPLICATIONMANAGER
   max_results: 10000
-aws:
-  default_lease_ttl: 20
-  max_lease_ttl: 0

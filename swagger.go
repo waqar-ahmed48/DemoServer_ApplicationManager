@@ -1,14 +1,14 @@
-// Package classification DemoServer_APPLICATIONMANAGER API.
+// Package classification DemoServer_ApplicationManager API.
 //
-// Connection defines cloud account connection for application deployment, spin up and down.
-// APPLICATIONMANAGER serves as one stop shop for CRUD as well as connectivity testing capabilities for all connection types for DemoServer.
+// Application defines application package for cloud native deployment, spin up and down.
+// ApplicationManager serves as one stop shop for CRUD as well as deployement, spin up and down capabilities for all applications for DemoServer.
 //
 // Terms Of Service:
 //
 // there are no TOS at this moment, use at your own risk we take no responsibility
 //
 //	Schemes: http
-//	BasePath: /v1/connectionmgmt
+//	BasePath: /v1/applicationmgmt
 //	Version: 1.0.0
 //	Contact: Muhammad Ahmed<muhammad.w.ahmed.48@gmail.com>
 //

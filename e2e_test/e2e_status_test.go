@@ -8,7 +8,7 @@ import (
 
 const (
 	getStatusRequestIDTestIterations = 1000
-	getStatusPath                    = "/v1/connectionmgmt/status"
+	getStatusPath                    = "/v1/applicationmgmt/status"
 )
 
 func (s *EndToEndSuite) TestPositive_GetStatus_HappyPath() {
@@ -36,7 +36,7 @@ func (s *EndToEndSuite) TestPositive_GetStatus_HappyPath() {
 
 	_ = r.Body.Close()
 
-	diff := JSONCompare(`{"status": "UP", "statusCode": "APPLICATIONMANAGER_Info_000002"}`, string(b))
+	diff := JSONCompare(`{"status": "UP", "statusCode": "ApplicationManager_Info_000002"}`, string(b))
 	s.Equal("", diff, "JSON Response comparison failed. Expected no differences. Found: %s", diff)
 }
 
@@ -97,6 +97,6 @@ func (s *EndToEndSuite) TestNegative_PostgresDown_GetStatus_ErrorPath() {
 	b, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 
-	diff := JSONCompare(`{"status": "DOWN", "statusCode": "APPLICATIONMANAGER_Info_000003"}`, string(b))
+	diff := JSONCompare(`{"status": "DOWN", "statusCode": "ApplicationManager_Info_000003"}`, string(b))
 	s.Equal(diff, "", "JSON Response comparison failed. Expected no differences. Found: %", diff)
 }

@@ -13,13 +13,10 @@ import (
 )
 
 const (
-	prefixHTTP         = "http://"
-	strPatched         = "_Patched"
-	strHyphen          = "-"
-	strUnderscore      = "_"
-	strDefaultLeaseTTL = "99s"
-	strMaxLeaseTTL     = "101s"
-	strDefaultRegion   = "us-west-2"
+	prefixHTTP    = "http://"
+	strPatched    = "_Patched"
+	strHyphen     = "-"
+	strUnderscore = "_"
 )
 
 type EndToEndSuite struct {
@@ -46,7 +43,7 @@ func GetIPAndPort() (string, string) {
 	}
 
 	if port == "" {
-		port = "5678"
+		port = "5679"
 
 		fmt.Printf("Environment varaiable DEMOSERVER_APPLICATIONMANAGER_SERVICE_PORT not set. Setting it to default: %s\n", port)
 	}

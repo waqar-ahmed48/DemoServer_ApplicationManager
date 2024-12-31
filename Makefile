@@ -66,7 +66,7 @@ testdocker: rundocker
 	@echo "bring up application..."
 	docker-compose up -d
 
-	until curl http://${DEMOSERVER_APPLICATIONMANAGER_SERVICE_IP}:${DEMOSERVER_APPLICATIONMANAGER_SERVICE_PORT}/v1/connectionmgmt/status; do printf '.';sleep 1;done
+	until curl http://${DEMOSERVER_APPLICATIONMANAGER_SERVICE_IP}:${DEMOSERVER_APPLICATIONMANAGER_SERVICE_PORT}/v1/applicationmgmt/status; do printf '.';sleep 1;done
 
 	@echo "test all postive test cases"
 	go clean -testcache
@@ -139,7 +139,7 @@ testk8s: runk8s
 
 	helm install -n demoserver demoserver-applicationmanager demoserver_applicationmanager_helm_chart/ --wait
 
-	until curl http://${DEMOSERVER_APPLICATIONMANAGER_SERVICE_IP}:${DEMOSERVER_APPLICATIONMANAGER_SERVICE_PORT}/v1/connectionmgmt/status; do printf '.';sleep 1;done
+	until curl http://${DEMOSERVER_APPLICATIONMANAGER_SERVICE_IP}:${DEMOSERVER_APPLICATIONMANAGER_SERVICE_PORT}/v1/applicationmgmt/status; do printf '.';sleep 1;done
 
 	#test all postive test cases
 	#go test -mod=mod -timeout 300s -skip TestEndtoEndSuite/TestNegative_PostgresDown_ ./... -json > TestResults-Positive.json || true
@@ -186,7 +186,7 @@ teststandalone: runstandalone
 	#bring up application
 	GOCOVERDIR=./e2e_test/coverage_reports ./DemoServer_APPLICATIONMANAGER >DemoServer_APPLICATIONMANAGER.log &
 	
-	until curl http://localhost:5678/v1/connectionmgmt/status; do printf '.';sleep 1;done
+	until curl http://localhost:5678/v1/applicationmgmt/status; do printf '.';sleep 1;done
 
 	#test all postive test cases
 	#go test -timeout 300s -skip TestEndtoEndSuite/TestNegative_PostgresDown_ ./... -json > ./e2e_test/coverage_reports/TestResults-Positive.json || true

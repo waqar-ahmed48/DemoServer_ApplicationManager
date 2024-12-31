@@ -64,11 +64,6 @@ type Config struct {
 		NamePrefix string `yaml:"name_prefix" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_NAME_PREFIX"`
 		MaxResults int    `yaml:"max_results" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_MAX_RESULTS"`
 	} `yaml:"datalayer"`
-
-	AWS struct {
-		DefaultLeaseTTL int `yaml:"default_lease_ttl" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_DEFAULTLEASETTL"`
-		MaxLeaseTTL     int `yaml:"max_lease_ttl" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_MAXLEASETTL"`
-	} `yaml:"aws"`
 }
 
 // Args is the struct for pass .

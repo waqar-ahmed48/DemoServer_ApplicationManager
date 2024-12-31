@@ -1,7 +1,7 @@
 package otel
 
 import (
-	"DemoServer_APPLICATIONMANAGER/configuration"
+	"DemoServer_ApplicationManager/configuration"
 	"context"
 	"errors"
 	"log/slog"

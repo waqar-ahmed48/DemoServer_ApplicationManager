@@ -1,8 +1,6 @@
 package e2e_test
 
 import (
-	"DemoServer_ApplicationManager/data"
-	"DemoServer_ApplicationManager/utilities"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,43 +10,44 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/waqar-ahmed48/DemoServer_ApplicationManager/utilities"
 )
 
 const (
-	AWSConnectionLoadTestIterations = 100
-	AWSConnectionLoadTestThreads    = 5
-	updateAWSConnectionTestLimit    = 10
-	addAWSConnectionPath            = "/v1/connectionmgmt/connection/aws"
-	getConnectionsPath              = "/v1/connectionmgmt/connections"
-	getAWSConnectionsPath           = "/v1/connectionmgmt/connections/aws"
-	deleteAWSConnectionPath         = "/v1/connectionmgmt/connection/aws"
-	updateAWSConnectionsPath        = "/v1/connectionmgmt/connection/aws"
+	ApplicationLoadTestIterations = 100
+	ApplicationLoadTestThreads    = 5
+	updateApplicationTestLimit    = 10
+	addApplicationPath            = "/v1/applicationmgmt/application"
+	getApplicationsPath           = "/v1/applicationmgmt/applications"
+	deleteApplicationPath         = "/v1/applicationmgmt/application"
+	updateApplicationPath         = "/v1/applicationmgmt/application"
 )
 
-func (s *EndToEndSuite) funcAddAWSConnection_Load(threadID int, rounds int) {
+func (s *EndToEndSuite) funcAddApplication_Load(threadID int, rounds int) {
 
 	strThreadID := strUnderscore + strconv.Itoa(threadID) + strUnderscore
 
-	dummyAWSConnectionJsonPath := "../testdata/aws_connection.json"
+	dummyApplicationJsonPath := "../testdata/application.json"
 
-	dummy := s.funcLoadDummyAWSConnection(dummyAWSConnectionJsonPath)
+	dummy := s.funcLoadDummyAWSConnection(dummyApplicationJsonPath)
 	ip, port := GetIPAndPort()
 
 	for i := 0; i < rounds; i++ {
 
 		suffix := strThreadID + strconv.Itoa(i)
 
-		s.funcAddAWSConnection(dummy, suffix, ip, port)
+		s.funcAddApplication(dummy, suffix, ip, port)
 
 		if i%1000 == 0 {
-			fmt.Printf("funcAddAWSConnection_Load - ThreadID: %d, Counter : %d\n", threadID, i)
+			fmt.Printf("funcAddApplication_Load - ThreadID: %d, Counter : %d\n", threadID, i)
 		}
 	}
 
 	fmt.Printf("funcAddAWSConnection_Load - ThreadID: %d DONE\n", threadID)
 }
 
-func (s *EndToEndSuite) funcUpdateAWSConnection_Load() {
+func (s *EndToEndSuite) funcUpdateApplication_Load() {
 	c := http.Client{}
 	updateCount := 0
 
@@ -56,7 +55,7 @@ func (s *EndToEndSuite) funcUpdateAWSConnection_Load() {
 
 	for ok := true; ok; {
 
-		r, err := c.Get(prefixHTTP + ip + ":" + port + getAWSConnectionsPath + "?skip=" + strconv.Itoa(updateCount) + "&limit=" + strconv.Itoa(updateAWSConnectionTestLimit))
+		r, err := c.Get(prefixHTTP + ip + ":" + port + getApplicationsPath + "?skip=" + strconv.Itoa(updateCount) + "&limit=" + strconv.Itoa(updateApplicationTestLimit))
 
 		if err != nil {
 			s.Require().Truef(false, "Get request received error: %s\n", err.Error())
@@ -74,7 +73,7 @@ func (s *EndToEndSuite) funcUpdateAWSConnection_Load() {
 
 		b, _ := io.ReadAll(r.Body)
 
-		var rc data.AWSConnectionsResponse
+		var rc data.ApplicationsResponse
 
 		err = json.Unmarshal(b, &rc)
 		if err != nil {
@@ -87,11 +86,11 @@ func (s *EndToEndSuite) funcUpdateAWSConnection_Load() {
 
 		suffix := strPatched
 
-		for _, jc := range rc.AWSConnections {
+		for _, jc := range rc.Applications {
 
-			var obj data.AWSConnectionPatchWrapper
+			var obj data.ApplicationPatchWrapper
 
-			obj.Connection.Name = jc.Connection.Name + suffix
+			obj.Name = jc.Connection.Name + suffix
 			obj.Connection.Description = jc.Connection.Description + suffix
 			obj.AccessKey = jc.AccessKey + suffix
 			obj.DefaultRegion = strDefaultRegion

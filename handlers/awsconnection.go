@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"DemoServer_APPLICATIONMANAGER/configuration"
-	"DemoServer_APPLICATIONMANAGER/data"
-	"DemoServer_APPLICATIONMANAGER/datalayer"
-	"DemoServer_APPLICATIONMANAGER/helper"
-	"DemoServer_APPLICATIONMANAGER/secretsmanager"
-	"DemoServer_APPLICATIONMANAGER/utilities"
+	"DemoServer_ApplicationManager/configuration"
+	"DemoServer_ApplicationManager/data"
+	"DemoServer_ApplicationManager/datalayer"
+	"DemoServer_ApplicationManager/helper"
+	"DemoServer_ApplicationManager/secretsmanager"
+	"DemoServer_ApplicationManager/utilities"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,39 +20,37 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type KeyAWSConnectionRecord struct{}
-type KeyAWSConnectionPatchParamsRecord struct{}
+type KeyApplicationRecord struct{}
+type KeyApplicationPatchParamsRecord struct{}
 
-type AWSConnectionHandler struct {
-	l                      *slog.Logger
-	cfg                    *configuration.Config
-	pd                     *datalayer.PostgresDataSource
-	vh                     *secretsmanager.VaultHandler
-	connections_list_limit int
+type ApplicationHandler struct {
+	l                       *slog.Logger
+	cfg                     *configuration.Config
+	pd                      *datalayer.PostgresDataSource
+	vh                      *secretsmanager.VaultHandler
+	applications_list_limit int
 }
 
-func NewAWSConnectionHandler(cfg *configuration.Config, l *slog.Logger, pd *datalayer.PostgresDataSource, vh *secretsmanager.VaultHandler) (*AWSConnectionHandler, error) {
-	var c AWSConnectionHandler
+func NewApplicationHandler(cfg *configuration.Config, l *slog.Logger, pd *datalayer.PostgresDataSource, vh *secretsmanager.VaultHandler) (*ApplicationHandler, error) {
+	var a ApplicationHandler
 
-	c.cfg = cfg
-	c.l = l
-	c.pd = pd
-	c.connections_list_limit = cfg.Server.ListLimit
-	c.vh = vh
+	a.cfg = cfg
+	a.l = l
+	a.pd = pd
+	a.applications_list_limit = cfg.Server.ListLimit
+	a.vh = vh
 
-	return &c, nil
+	return &a, nil
 }
 
-func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.Request) {
+func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Request) {
 
-	// swagger:operation GET /connections/aws AWSConnection GetAWSConnections
-	// List AWS Connections
+	// swagger:operation GET /applications - GetApplications
+	// List Applications
 	//
-	// Endpoint: GET - /v1/connectionmgmt/connections/aws
+	// Endpoint: GET - /v1/applicationmgmt/applications
 	//
-	// Description: Returns list of AWSConnection resources. Each AWSConnection resource
-	// contains underlying generic Connection resource as well as AWSConnection
-	// specific attributes.
+	// Description: Returns list of Appliction resources.
 	//
 	// ---
 	// produces:
@@ -72,11 +70,11 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 	//   format: int32
 	// responses:
 	//   '200':
-	//     description: List of AWSConnection resources
+	//     description: List of Application resources
 	//     schema:
 	//       type: array
 	//       items:
-	//         "$ref": "#/definitions/AWSConnection"
+	//         "$ref": "#/definitions/Application"
 	//   '400':
 	//     description: Issues with parameters or their value
 	//     schema:
@@ -91,7 +89,7 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 	//       "$ref": "#/definitions/ErrorResponse"
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 	defer span.End()
 
 	// Add trace context to the logger
@@ -106,7 +104,7 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 
 	vars := r.URL.Query()
 
-	limit, skip := h.connections_list_limit, 0
+	limit, skip := h.applications_list_limit, 0
 
 	limit_str := vars.Get("limit")
 	if limit_str != "" {
@@ -122,17 +120,15 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 		limit = h.cfg.DataLayer.MaxResults
 	}
 
-	var response data.AWSConnectionsResponse
+	var response data.ApplicationsResponse
 
-	var conns []data.AWSConnection
+	var applications []data.Application
 
 	result := h.pd.RODB().
-		Preload("Connection"). // Preloads the Connection struct
 		Limit(limit).
 		Offset(skip).
-		Order("connections.name"). // Orders by the name in the Connection table
-		Joins("left join connections on connections.id = aws_connections.connection_id").
-		Find(&conns) // Finds all AWSConnection entries
+		Order("name").      // Orders by the name in the application table
+		Find(&applications) // Finds all application entries
 
 	if result.Error != nil {
 		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
@@ -148,33 +144,16 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 		return
 	}
 
-	response.Total = len(conns)
+	response.Total = len(applications)
 	response.Skip = skip
 	response.Limit = limit
 	if response.Total == 0 {
-		response.AWSConnections = ([]data.AWSConnectionResponseWrapper{})
+		response.Applications = ([]data.ApplicationResponseWrapper{})
 	} else {
-		for _, value := range conns {
-			err := h.vh.GetAWSSecretsEngine(&value, ctx)
-
-			if err != nil {
-				helper.LogError(cl, helper.ErrorVaultLoadFailed, err, span)
-
-				helper.ReturnErrorWithAdditionalInfo(
-					cl,
-					http.StatusInternalServerError,
-					helper.ErrorVaultLoadFailed,
-					requestid,
-					r,
-					&w,
-					err,
-					span)
-				return
-			}
-
-			var oRespConn data.AWSConnectionResponseWrapper
+		for _, value := range applications {
+			var oRespConn data.ApplicationResponseWrapper
 			_ = utilities.CopyMatchingFields(value, &oRespConn)
-			response.AWSConnections = append(response.AWSConnections, oRespConn)
+			response.Applications = append(response.Applications, oRespConn)
 		}
 	}
 
@@ -185,7 +164,7 @@ func (h *AWSConnectionHandler) GetAWSConnections(w http.ResponseWriter, r *http.
 	}
 }
 
-func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionsGet(next http.Handler) http.Handler {
+func (h ApplicationHandler) MiddlewareValidateApplicationsGet(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
@@ -271,32 +250,32 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionsGet(next http.Hand
 	})
 }
 
-// GetAWSConnection returns AWSConnection resource based on connectionid parameter
-func (h *AWSConnectionHandler) GetAWSConnection(w http.ResponseWriter, r *http.Request) {
+// GetApplication returns Application resource based on applicationid parameter
+func (h *ApplicationHandler) GetApplication(w http.ResponseWriter, r *http.Request) {
 
-	// swagger:operation GET /connection AWSConnection GetAWSConnection
-	// Retrieve AWS Connection
+	// swagger:operation GET /applicationn Application GetApplication
+	// Retrieve Application
 	//
-	// Endpoint: GET - /v1/connectionmgmt/connection/aws/{connectionid}
+	// Endpoint: GET - /v1/applicationmgmt/application/{applicationid}
 	//
-	// Description: Returns AWSConnection resource based on connectionid.
+	// Description: Returns Application resource based on applicationid.
 	//
 	// ---
 	// produces:
 	// - application/json
 	// parameters:
-	// - name: connectionid
+	// - name: applicationid
 	//   in: query
-	//   description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+	//   description: id for Application resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 	//   required: true
 	//   type: string
 	// responses:
 	//   '200':
-	//     description: AWSConnection resource
+	//     description: Application resource
 	//     schema:
-	//         "$ref": "#/definitions/AWSConnection"
+	//         "$ref": "#/definitions/Application"
 	//   '404':
-	//     description: Resource not found. Resources are filtered based on connectiontype = AWSConnectionType. If connectionid of Non-AWSConnection is provided ResourceNotFound error is returned.
+	//     description: Resource not found.
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 	//   '500':
@@ -309,7 +288,7 @@ func (h *AWSConnectionHandler) GetAWSConnection(w http.ResponseWriter, r *http.R
 	//       "$ref": "#/definitions/ErrorResponse"
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 	defer span.End()
 
 	// Add trace context to the logger
@@ -323,10 +302,10 @@ func (h *AWSConnectionHandler) GetAWSConnection(w http.ResponseWriter, r *http.R
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	vars := mux.Vars(r)
-	connectionid := vars["connectionid"]
-	var connection data.AWSConnection
+	applicationid := vars["applicationid"]
+	var application data.Application
 
-	result := h.pd.RODB().Preload("Connection").First(&connection, "id = ?", connectionid)
+	result := h.pd.RODB().First(&application, "id = ?", applicationid)
 
 	if result.Error != nil {
 		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
@@ -356,177 +335,24 @@ func (h *AWSConnectionHandler) GetAWSConnection(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err := h.vh.GetAWSSecretsEngine(&connection, ctx)
+	var oRespConn data.ApplicationResponseWrapper
+	_ = utilities.CopyMatchingFields(application, &oRespConn)
 
-	if err != nil {
-		helper.LogError(cl, helper.ErrorVaultLoadFailed, err, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorVaultLoadFailed,
-			requestid,
-			r,
-			&w,
-			err,
-			span)
-		return
-	}
-
-	var oRespConn data.AWSConnectionResponseWrapper
-	_ = utilities.CopyMatchingFields(connection, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
+	err := json.NewEncoder(w).Encode(oRespConn)
 
 	if err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
 }
 
-func (h *AWSConnectionHandler) TestAWSConnection(w http.ResponseWriter, r *http.Request) {
+func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 
-	// swagger:operation GET /Test AWSConnection TestAWSConnection
-	// Test AWS Connection
+	// swagger:operation PATCH /application Application UpdateApplication
+	// Update Application
 	//
-	// Endpoint: GET - /v1/connectionmgmt/connection/aws/test/{connectionid}
+	// Endpoint: PATCH - /v1/applicationmgmt/application/{applicationid}
 	//
-	// Description: Test connectivity of specified AWSConnection resource.
-	//
-	// ---
-	// produces:
-	// - application/json
-	// parameters:
-	// - name: connectionid
-	//   in: query
-	//   description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-	//   required: true
-	//   type: string
-	// responses:
-	//   '200':
-	//     description: Connectivity test status
-	//     schema:
-	//         "$ref": "#/definitions/TestAWSConnectionResponse"
-	//   '404':
-	//     description: Resource not found. Resources are filtered based on connectiontype = AWSConnectionType. If connectionid of Non-AWSConnection is provided ResourceNotFound error is returned.
-	//     schema:
-	//       "$ref": "#/definitions/ErrorResponse"
-	//   '500':
-	//     description: Internal server error
-	//     schema:
-	//       "$ref": "#/definitions/ErrorResponse"
-	//   default:
-	//     description: unexpected error
-	//     schema:
-	//       "$ref": "#/definitions/ErrorResponse"
-
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	connectionid := vars["connectionid"]
-	var connection data.AWSConnection
-
-	var response data.TestAWSConnectionResponse
-
-	result := h.pd.RODB().Preload("Connection").First(&connection, "id = ?", connectionid)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	err := h.vh.TestAWSSecretsEngine(connection.VaultPath, ctx)
-
-	if err != nil {
-		helper.LogDebug(cl, helper.DebugAWSConnectionTestFailed, err, span)
-		connection.Connection.SetTestFailed(err.Error())
-	} else {
-		connection.Connection.SetTestPassed()
-	}
-
-	result = h.pd.RWDB().Save(&connection.Connection)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected != 1 {
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	response.ID = connection.ID.String()
-	response.TestStatus = connection.Connection.TestError
-	response.TestStatusCode = connection.Connection.TestSuccessful
-
-	err = json.NewEncoder(w).Encode(&response)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *http.Request) {
-
-	// swagger:operation PATCH /aws AWSConnection UpdateAWSConnection
-	// Update AWS Connection
-	//
-	// Endpoint: PATCH - /v1/connectionmgmt/connection/aws/{connectionid}
-	//
-	// Description: Update attributes of AWSConnection resource. Update operation resets Tested status of AWSConnection.
+	// Description: Update attributes of Application resource.
 	//
 	// ---
 	// consumes:
@@ -534,22 +360,22 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 	// produces:
 	// - application/json
 	// parameters:
-	// - name: connectionid
+	// - name: applicationid
 	//   in: query
-	//   description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+	//   description: id for Application resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 	//   required: true
 	//   type: string
 	// - in: body
 	//   name: Body
-	//   description: JSON string defining AWSConnection resource. Change of connectiontype and ID attributes is not allowed.
+	//   description: JSON string defining Application resource.
 	//   required: true
 	//   schema:
-	//     "$ref": "#/definitions/AWSConnectionPatchWrapper"
+	//     "$ref": "#/definitions/ApplicationPatchWrapper"
 	// responses:
 	//   '200':
-	//     description: AWSConnection resource after updates.
+	//     description: Application resource after updates.
 	//     schema:
-	//         "$ref": "#/definitions/AWSConnection"
+	//         "$ref": "#/definitions/Application"
 	//   '400':
 	//     description: Bad request or parameters
 	//     schema:
@@ -574,13 +400,13 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	vars := mux.Vars(r)
-	connectionid := vars["connectionid"]
+	applicationid := vars["applicationid"]
 
-	p := r.Context().Value(KeyAWSConnectionPatchParamsRecord{}).(data.AWSConnectionPatchWrapper)
+	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
 
-	var connection data.AWSConnection
+	var application data.Application
 
-	result := h.pd.RODB().Preload("Connection").First(&connection, "id = ?", connectionid)
+	result := h.pd.RODB().First(&application, "id = ?", applicationid)
 
 	if result.Error != nil {
 		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
@@ -610,29 +436,9 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err := h.vh.GetAWSSecretsEngine(&connection, ctx)
+	_ = utilities.CopyMatchingFields(p, &application)
 
-	if err != nil {
-		helper.LogError(cl, helper.ErrorVaultLoadFailed, err, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorVaultLoadFailed,
-			requestid,
-			r,
-			&w,
-			err,
-			span)
-		return
-	}
-
-	_ = utilities.CopyMatchingFields(p.Connection, &connection.Connection)
-	_ = utilities.CopyMatchingFields(p, &connection)
-
-	connection.Connection.ResetTestStatus()
-
-	err = h.updateAWSConnection(&connection, ctx)
+	err := h.updateApplication(&application, ctx)
 
 	if err != nil {
 		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
@@ -648,7 +454,7 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	result = h.pd.RODB().Preload("Connection").First(&connection, "id = ?", connectionid)
+	result = h.pd.RODB().First(&application, "id = ?", applicationid)
 
 	if result.Error != nil {
 		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
@@ -678,25 +484,8 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err = h.vh.GetAWSSecretsEngine(&connection, ctx)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorVaultLoadFailed, err, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorVaultLoadFailed,
-			requestid,
-			r,
-			&w,
-			err,
-			span)
-		return
-	}
-
-	var oRespConn data.AWSConnectionResponseWrapper
-	_ = utilities.CopyMatchingFields(connection, &oRespConn)
+	var oRespConn data.ApplicationResponseWrapper
+	_ = utilities.CopyMatchingFields(application, &oRespConn)
 
 	err = json.NewEncoder(w).Encode(oRespConn)
 
@@ -705,30 +494,30 @@ func (h *AWSConnectionHandler) UpdateAWSConnection(w http.ResponseWriter, r *htt
 	}
 }
 
-// DeleteAWSConnection deletes a AWSConnection from datastore
-func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *http.Request) {
+// DeleteApplication deletes the Application from datastore
+func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Request) {
 
-	// swagger:operation DELETE /aws AWSConnection DeleteAWSConnection
-	// Delete AWS Connection
+	// swagger:operation DELETE /application Application DeleteApplication
+	// Delete Application
 	//
-	// Endpoint: DELETE - /v1/connectionmgmt/connection/aws/{connectionid}
+	// Endpoint: DELETE - /v1/applicationmgmt/application/{applicationid}
 	//
-	// Description: Returns AWSConnection resource based on connectionid.
+	// Description: Returns Application resource based on applicationid.
 	//
 	// ---
 	// produces:
 	// - application/json
 	// parameters:
-	// - name: connectionid
+	// - name: applicationid
 	//   in: query
-	//   description: id for AWSConnection resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+	//   description: id for Application resource to be retrieved. expected to be in uuid format i.e. XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 	//   required: true
 	//   type: string
 	// responses:
 	//   '200':
 	//     description: Resource successfully deleted.
 	//     schema:
-	//         "$ref": "#/definitions/DeleteAWSConnectionResponse"
+	//         "$ref": "#/definitions/DeleteApplicationResponse"
 	//   '404':
 	//     description: Resource not found.
 	//     schema:
@@ -757,20 +546,20 @@ func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *htt
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	vars := mux.Vars(r)
-	connectionid := vars["connectionid"]
+	applicationid := vars["applicationid"]
 
-	var connection data.AWSConnection
+	var application data.Application
 	var err error
 
-	connection.ID, err = uuid.Parse(connectionid)
+	application.ID, err = uuid.Parse(applicationid)
 
 	if err != nil {
-		helper.LogDebug(cl, helper.ErrorConnectionIDInvalid, err, span)
+		helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, err, span)
 
 		helper.ReturnError(
 			cl,
 			http.StatusBadRequest,
-			helper.ErrorConnectionIDInvalid,
+			helper.ErrorApplicationIDInvalid,
 			requestid,
 			r,
 			&w,
@@ -778,7 +567,7 @@ func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	result := h.pd.RODB().Preload("Connection").First(&connection, "id = ?", connectionid)
+	result := h.pd.RODB().First(&application, "id = ?", applicationid)
 
 	if result.Error != nil {
 		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
@@ -808,7 +597,7 @@ func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err = h.deleteAWSConnection(&connection, ctx)
+	err = h.deleteApplication(&application, ctx)
 
 	if err != nil {
 		helper.LogDebug(cl, helper.ErrorDatastoreDeleteFailed, err, span)
@@ -824,7 +613,7 @@ func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *htt
 		return
 	}
 
-	var response data.DeleteAWSConnectionResponse
+	var response data.DeleteApplicationResponse
 	response.StatusCode = http.StatusNoContent
 	response.Status = http.StatusText(response.StatusCode)
 
@@ -835,7 +624,7 @@ func (h *AWSConnectionHandler) DeleteAWSConnection(w http.ResponseWriter, r *htt
 	}
 }
 
-func (h *AWSConnectionHandler) deleteAWSConnection(c *data.AWSConnection, ctx context.Context) error {
+func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.Context) error {
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
@@ -849,22 +638,10 @@ func (h *AWSConnectionHandler) deleteAWSConnection(c *data.AWSConnection, ctx co
 		return tx.Error
 	}
 
-	err := h.vh.RemoveAWSSecretsEngine(c, ctx)
-	if err != nil {
+	// Delete from applications
+	if err := tx.Exec("DELETE FROM applications WHERE id = ?", a.ID).Error; err != nil {
 		tx.Rollback()
-		return err
-	}
-
-	// Delete from aws_connections
-	if err = tx.Exec("DELETE FROM aws_connections WHERE id = ?", c.ID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete aws_connection: %w", err)
-	}
-
-	// Delete from connections
-	if err := tx.Exec("DELETE FROM connections WHERE id = ?", c.ConnectionID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete connection: %w", err)
+		return fmt.Errorf("failed to delete application: %w", err)
 	}
 
 	// Commit the transaction
@@ -875,7 +652,7 @@ func (h *AWSConnectionHandler) deleteAWSConnection(c *data.AWSConnection, ctx co
 	return nil
 }
 
-func (h *AWSConnectionHandler) updateAWSConnection(c *data.AWSConnection, ctx context.Context) error {
+func (h *ApplicationHandler) updateApplication(a *data.Application, ctx context.Context) error {
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
@@ -889,20 +666,7 @@ func (h *AWSConnectionHandler) updateAWSConnection(c *data.AWSConnection, ctx co
 		return tx.Error
 	}
 
-	err := h.vh.UpdateAWSSecretsEngine(c, ctx)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	result := tx.Save(&c.Connection)
-
-	if result.Error != nil {
-		tx.Rollback()
-		return result.Error
-	}
-
-	result = tx.Save(c)
+	result := tx.Save(a)
 
 	if result.Error != nil {
 		tx.Rollback()
@@ -917,14 +681,14 @@ func (h *AWSConnectionHandler) updateAWSConnection(c *data.AWSConnection, ctx co
 	return nil
 }
 
-func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.Request) {
+func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Request) {
 
-	// swagger:operation POST /aws AWSConnection AddAWSConnection
-	// New AWS Connection
+	// swagger:operation POST /application Application AddApplication
+	// New Application
 	//
-	// Endpoint: POST - /v1/connectionmgmt/connection/aws
+	// Endpoint: POST - /v1/applicationmgmt/application
 	//
-	// Description: Create new AWSConnection resource.
+	// Description: Create new Application resource.
 	//
 	// ---
 	// consumes:
@@ -934,15 +698,15 @@ func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.R
 	// parameters:
 	// - in: body
 	//   name: Body
-	//   description: JSON string defining AWSConnection resource
+	//   description: JSON string defining Application resource
 	//   required: true
 	//   schema:
-	//     "$ref": "#/definitions/AWSConnectionPostWrapper"
+	//     "$ref": "#/definitions/ApplicationPostWrapper"
 	// responses:
 	//   '200':
-	//     description: AWSConnection resource just created.
+	//     description: Application resource created.
 	//     schema:
-	//         "$ref": "#/definitions/AWSConnection"
+	//         "$ref": "#/definitions/Application"
 	//   '500':
 	//     description: Internal server error
 	//     schema:
@@ -966,9 +730,7 @@ func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.R
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	c := r.Context().Value(KeyAWSConnectionRecord{}).(*data.AWSConnection)
-
-	c.Connection.ConnectionType = data.AWSConnectionType
+	a := r.Context().Value(KeyApplicationRecord{}).(*data.Application)
 
 	// Begin a transaction
 	tx := h.pd.RWDB().Begin()
@@ -989,26 +751,7 @@ func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	result := tx.Create(&c.Connection)
-
-	if result.Error != nil {
-		tx.Rollback()
-
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, result.Error, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			requestid,
-			r,
-			&w,
-			result.Error,
-			span)
-		return
-	}
-
-	result = tx.Create(&c)
+	result := tx.Create(&a)
 
 	if result.Error != nil {
 		tx.Rollback()
@@ -1043,44 +786,26 @@ func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err := h.vh.AddAWSSecretsEngine(c, ctx)
-	if err != nil {
-		tx.Rollback()
+	err := tx.Commit().Error
 
-		helper.LogError(cl, helper.ErrorVaultAWSEngineFailed, err, span)
+	if err != nil {
+		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
 
 		helper.ReturnErrorWithAdditionalInfo(
 			cl,
 			http.StatusInternalServerError,
-			helper.ErrorVaultAWSEngineFailed,
+			helper.ErrorDatastoreSaveFailed,
 			requestid,
 			r,
 			&w,
-			err,
+			tx.Error,
 			span)
 		return
-	} else {
-		err = tx.Commit().Error
-
-		if err != nil {
-			helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusInternalServerError,
-				helper.ErrorDatastoreSaveFailed,
-				requestid,
-				r,
-				&w,
-				tx.Error,
-				span)
-			return
-		}
 	}
 
-	var c_wrapper data.AWSConnectionResponseWrapper
+	var c_wrapper data.ApplicationResponseWrapper
 
-	_ = utilities.CopyMatchingFields(c, &c_wrapper)
+	_ = utilities.CopyMatchingFields(a, &c_wrapper)
 
 	err = json.NewEncoder(w).Encode(c_wrapper)
 
@@ -1088,10 +813,10 @@ func (h *AWSConnectionHandler) AddAWSConnection(w http.ResponseWriter, r *http.R
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
 
-	c = nil
+	a = nil
 }
 
-func (h AWSConnectionHandler) MiddlewareValidateAWSConnection(next http.Handler) http.Handler {
+func (h ApplicationHandler) MiddlewareValidateApplication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
@@ -1107,15 +832,15 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnection(next http.Handler)
 		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
 
 		vars := mux.Vars(r)
-		connectionid := vars["connectionid"]
+		applicationid := vars["applicationid"]
 
-		if len(connectionid) == 0 {
-			helper.LogDebug(cl, helper.ErrorConnectionIDInvalid, helper.ErrNone, span)
+		if len(applicationid) == 0 {
+			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
 
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorConnectionIDInvalid,
+				helper.ErrorApplicationIDInvalid,
 				requestid,
 				r,
 				&rw,
@@ -1128,7 +853,7 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnection(next http.Handler)
 	})
 }
 
-func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionPost(next http.Handler) http.Handler {
+func (h ApplicationHandler) MiddlewareValidateApplicationPost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
@@ -1143,9 +868,9 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionPost(next http.Hand
 
 		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
 
-		c := data.NewAWSConnection(h.cfg)
+		a := data.NewApplication(h.cfg)
 
-		err := c.FromJSON(r.Body)
+		err := a.FromJSON(r.Body)
 		if err != nil {
 			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
 
@@ -1162,7 +887,7 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionPost(next http.Hand
 
 		}
 
-		err = c.Validate()
+		err = a.Validate()
 		if err != nil {
 			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
 
@@ -1179,26 +904,8 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionPost(next http.Hand
 
 		}
 
-		if c.Connection.ConnectionType != data.NoConnectionType {
-			if c.Connection.ConnectionType != data.AWSConnectionType {
-				helper.LogDebug(cl, helper.ErrorInvalidConnectionType, helper.ErrNone, span)
-
-				helper.ReturnError(
-					cl,
-					http.StatusBadRequest,
-					helper.ErrorInvalidConnectionType,
-					requestid,
-					r,
-					&rw,
-					span)
-				return
-
-			}
-		}
-
-		// add the connection to the context
-		//ctx := context.WithValue(r.Context(), KeyAWSConnectionRecord{}, c)
-		ctx = context.WithValue(ctx, KeyAWSConnectionRecord{}, c)
+		// add the application to the context
+		ctx = context.WithValue(ctx, KeyApplicationRecord{}, a)
 		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
@@ -1206,7 +913,7 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionPost(next http.Hand
 	})
 }
 
-func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionUpdate(next http.Handler) http.Handler {
+func (h ApplicationHandler) MiddlewareValidateApplicationUpdate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
@@ -1222,16 +929,16 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionUpdate(next http.Ha
 		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
 
 		vars := mux.Vars(r)
-		connectionid := vars["connectionid"]
-		var p data.AWSConnectionPatchWrapper
+		applicationid := vars["applicationid"]
+		var p data.ApplicationPatchWrapper
 
-		if len(connectionid) == 0 {
-			helper.LogDebug(cl, helper.ErrorConnectionIDInvalid, helper.ErrNone, span)
+		if len(applicationid) == 0 {
+			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
 
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorConnectionIDInvalid,
+				helper.ErrorApplicationIDInvalid,
 				requestid,
 				r,
 				&rw,
@@ -1273,9 +980,8 @@ func (h AWSConnectionHandler) MiddlewareValidateAWSConnectionUpdate(next http.Ha
 
 		}
 
-		// add the connection to the context
-		//ctx := context.WithValue(r.Context(), KeyAWSConnectionPatchParamsRecord{}, p)
-		ctx = context.WithValue(ctx, KeyAWSConnectionPatchParamsRecord{}, p)
+		// add the application to the context
+		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
 		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.

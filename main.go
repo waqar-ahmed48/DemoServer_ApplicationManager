@@ -258,6 +258,51 @@ func main() {
 	getTofuVersionRouter.Use(otelhttp.NewMiddleware("GET /application/tofu/version"))
 	getTofuVersionRouter.Use(ah.MiddlewareValidateTofuVersion)
 
+	getTGVersionRouter := r.Methods(http.MethodGet).Subrouter()
+	getTGVersionRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/version", ah.TGVersion)
+	getTGVersionRouter.Use(otelhttp.NewMiddleware("GET /application/terragrunt/version"))
+	getTGVersionRouter.Use(ah.MiddlewareValidateTGVersion)
+
+	getTGRenderRouter := r.Methods(http.MethodGet).Subrouter()
+	getTGRenderRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/render", ah.TGRender)
+	getTGRenderRouter.Use(otelhttp.NewMiddleware("GET /application/terragrunt/render"))
+	getTGRenderRouter.Use(ah.MiddlewareValidateTGRender)
+
+	getTGInfoRouter := r.Methods(http.MethodGet).Subrouter()
+	getTGInfoRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/info", ah.TGInfo)
+	getTGInfoRouter.Use(otelhttp.NewMiddleware("GET /application/terragrunt/render"))
+	getTGInfoRouter.Use(ah.MiddlewareValidateTGInfo)
+
+	getTGOutputRouter := r.Methods(http.MethodGet).Subrouter()
+	getTGOutputRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/info", ah.TGOutput)
+	getTGOutputRouter.Use(otelhttp.NewMiddleware("GET /application/terragrunt/output"))
+	getTGOutputRouter.Use(ah.MiddlewareValidateTGOutput)
+
+	postTGDestroyRouter := r.Methods(http.MethodPost).Subrouter()
+	postTGDestroyRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/destroy", ah.TGDestroy)
+	postTGDestroyRouter.Use(otelhttp.NewMiddleware("POST /application/terragrunt/destroy"))
+	postTGDestroyRouter.Use(ah.MiddlewareValidateTGDestroy)
+
+	postTGApplyRouter := r.Methods(http.MethodPost).Subrouter()
+	postTGApplyRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/apply", ah.TGApply)
+	postTGApplyRouter.Use(otelhttp.NewMiddleware("POST /application/terragrunt/apply"))
+	postTGApplyRouter.Use(ah.MiddlewareValidateTGApply)
+
+	postTGPlanRouter := r.Methods(http.MethodPost).Subrouter()
+	postTGPlanRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/plan", ah.TGPlan)
+	postTGPlanRouter.Use(otelhttp.NewMiddleware("POST /application/terragrunt/destroy"))
+	postTGPlanRouter.Use(ah.MiddlewareValidateTGPlan)
+
+	postTGValidateRouter := r.Methods(http.MethodPost).Subrouter()
+	postTGValidateRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/validate", ah.TGValidate)
+	postTGValidateRouter.Use(otelhttp.NewMiddleware("POST /application/terragrunt/validate"))
+	postTGValidateRouter.Use(ah.MiddlewareValidateTGValidate)
+
+	postTGInitRouter := r.Methods(http.MethodPost).Subrouter()
+	postTGInitRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$}/terragrunt/init", ah.TGInit)
+	postTGInitRouter.Use(otelhttp.NewMiddleware("POST /application/terragrunt/init"))
+	postTGInitRouter.Use(ah.MiddlewareValidateTGInit)
+
 	opts := middleware.RedocOpts{SpecURL: "/swagger.yaml"}
 	docs_sh := middleware.Redoc(opts, nil)
 

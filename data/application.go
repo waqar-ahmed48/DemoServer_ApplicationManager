@@ -1,8 +1,12 @@
 package data
 
 import (
+	"DemoServer_ApplicationManager/configuration"
+	"encoding/json"
+	"io"
 	"time"
 
+	"github.com/go-playground/validator"
 	"github.com/google/uuid"
 )
 
@@ -52,49 +56,29 @@ type ConnectionPatchWrapper struct {
 	Description string `json:"description" gorm:"index"`
 }
 
-// Connection represents generic Connection resource returned by Microservice endpoints
-// Different types of connections (for example: AWSConnection) contains an object of
-// Connection inside.
+// Application represents generic Application resource returned by Microservice endpoints
 //
 // swagger:model
-type Connection struct {
+type Application struct {
 	ID        uuid.UUID `json:"id" gorm:"primaryKey"`
 	CreatedAt time.Time `json:"createdat" gorm:"autoCreateTime;index;not null"`
 	UpdatedAt time.Time `json:"updatedat" gorm:"autoUpdateTime;index"`
 
-	// User friendly name for Connection
+	// User friendly name for Application
 	// required: true
 	Name string `json:"name" validate:"required" gorm:"index;not null;unique"`
 
-	// Description of Connection
+	// Description of Application
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
-	// Type of connection.
-	// required: true
-	ConnectionType ConnectionTypeEnum `json:"connectiontype" gorm:"index;not null"`
-
-	// Latest connectivity test result. 0 = Failed. 1 = Successful
-	// required: false
-	TestSuccessful int `json:"testsuccessful"`
-
-	// Descriptive error for latest connectivity test
-	// required: false
-	TestError string `json:"testerror"`
-
-	// Date and time of latest connectivity test whether it was successful or not
-	// required: false
-	TestedOn string `json:"testedon"`
-
-	// Date and time of latest successful connectivity test
-	// required: false
-	LastSuccessfulTest string `json:"lastsuccessfultest"`
+	ConnectionID uuid.UUID `json:"connectionid" gorm:"index"`
 }
 
-// ConnectionsResponse represents generic Connection attributes which are returned in response of GET on connections endpoint.
+// ApplicationsResponse represents generic Application attributes which are returned in response of GET on applications endpoint.
 //
 // swagger:model
-type ConnectionsResponse struct {
+type ApplicationsResponse struct {
 	// Number of skipped resources
 	// required: true
 	Skip int `json:"skip"`
@@ -109,23 +93,75 @@ type ConnectionsResponse struct {
 
 	// Connection resource objects
 	// required: true
-	Connections []Connection `json:"connections"`
+	Applications []Application `json:"applications"`
 }
 
-func (c *Connection) SetTestFailed(e string) {
-	c.TestSuccessful = 0
-	c.TestedOn = time.Now().UTC().String()
-	c.TestError = e
+// AWSConnectionPostWrapper represents AWSConnection attributes for POST request body schema.
+// swagger:model
+type ApplicationPostWrapper struct {
 }
 
-func (c *Connection) SetTestPassed() {
-	c.TestSuccessful = 1
-	c.TestedOn = time.Now().UTC().String()
-	c.LastSuccessfulTest = time.Now().UTC().String()
-	c.TestError = ""
+// ApplicationPatchWrapper represents Application attributes for PATCH request body schema.
+// swagger:model
+type ApplicationPatchWrapper struct {
 }
 
-func (c *Connection) ResetTestStatus() {
-	c.TestSuccessful = 0
-	c.TestError = ""
+// ApplicationResponseWrapper represents limited information Application resource returned by Post, Get and List endpoints
+// swagger:model
+type ApplicationResponseWrapper struct {
+}
+
+// DeleteApplicationResponse represents Response schema for DELETE - Application
+// swagger:model
+type DeleteApplicationResponse struct {
+	// Descriptive human readable HTTP status of delete operation.
+	// in: status
+	Status string `json:"status"`
+
+	// HTTP status code for delete operation.
+	// in: statusCode
+	StatusCode int `json:"statusCode"`
+}
+
+type Applications []*Application
+
+func NewApplication(cfg *configuration.Config) *Application {
+	var a Application
+
+	a.ID = uuid.New()
+
+	return &a
+}
+
+func InitApplication(id string, cfg *configuration.Config) *Application {
+	var a Application
+
+	a.ID, _ = uuid.Parse(id)
+
+	return &a
+}
+
+func (a *Application) GetNewID() {
+	a.ID = uuid.New()
+}
+
+func (a *Application) FromJSON(r io.Reader) error {
+	e := json.NewDecoder(r)
+	err := e.Decode(a)
+
+	return err
+}
+
+func (a *Application) Validate() error {
+	validate := validator.New()
+	return validate.Struct(a)
+}
+
+func (a *Application) ToJSON(w io.Writer) error {
+	e := json.NewEncoder(w)
+	return e.Encode(a)
+}
+
+func (a *Application) Initialize() {
+	return
 }

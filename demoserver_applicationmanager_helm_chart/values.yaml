@@ -38,8 +38,8 @@ securityContext: {}
 
 service:
   type: NodePort
-  port: 5678
-  nodePort: 30283
+  port: 5679
+  nodePort: 30284
 
 ingress:
   enabled: false
