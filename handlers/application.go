@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os/exec"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -23,11 +24,11 @@ type KeyApplicationRecord struct{}
 type KeyApplicationPatchParamsRecord struct{}
 
 type ApplicationHandler struct {
-	l                       *slog.Logger
-	cfg                     *configuration.Config
-	pd                      *datalayer.PostgresDataSource
-	vh                      *secretsmanager.VaultHandler
-	applications_list_limit int
+	l          *slog.Logger
+	cfg        *configuration.Config
+	pd         *datalayer.PostgresDataSource
+	vh         *secretsmanager.VaultHandler
+	list_limit int
 }
 
 func NewApplicationHandler(cfg *configuration.Config, l *slog.Logger, pd *datalayer.PostgresDataSource, vh *secretsmanager.VaultHandler) (*ApplicationHandler, error) {
@@ -36,7 +37,7 @@ func NewApplicationHandler(cfg *configuration.Config, l *slog.Logger, pd *datala
 	a.cfg = cfg
 	a.l = l
 	a.pd = pd
-	a.applications_list_limit = cfg.Server.ListLimit
+	a.list_limit = cfg.Server.ListLimit
 	a.vh = vh
 
 	return &a, nil
@@ -103,7 +104,7 @@ func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Requ
 
 	vars := r.URL.Query()
 
-	limit, skip := h.applications_list_limit, 0
+	limit, skip := h.list_limit, 0
 
 	limit_str := vars.Get("limit")
 	if limit_str != "" {
@@ -732,6 +733,7 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	p := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
 
 	a := data.NewApplication(h.cfg)
+	_ = a.NewVersion()
 
 	utilities.CopyMatchingFields(p, a)
 
@@ -1175,19 +1177,71 @@ func (h *ApplicationHandler) Init(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
+	vars := mux.Vars(r)
+	applicationid := vars["applicationid"]
+	versionnumber := vars["versionnumber"]
+	vn, _ := strconv.Atoi(versionnumber)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	var version data.Version
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	strExternalCommand := "terragrunt init"
+	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
+	cmd := exec.Command("bash", "-c", strCommand)
+
+	// Get the output of the command
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+	}
+
+	cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+	var resp data.CommandOutputWrapper
+	resp.ApplicationID = version.ApplicationID.String()
+	resp.VersionID = version.ID
+	resp.VersionNumber = version.VersionNumber
+	resp.Command = strExternalCommand
+	resp.Output = cleanedupOutput
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	err = json.NewEncoder(w).Encode(resp)
+
+	if err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
 }
 
 func (h *ApplicationHandler) HclValidate(w http.ResponseWriter, r *http.Request) {
@@ -1235,19 +1289,71 @@ func (h *ApplicationHandler) Validate(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
+	vars := mux.Vars(r)
+	applicationid := vars["applicationid"]
+	versionnumber := vars["versionnumber"]
+	vn, _ := strconv.Atoi(versionnumber)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	var version data.Version
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	strExternalCommand := "terragrunt validate"
+	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
+	cmd := exec.Command("bash", "-c", strCommand)
+
+	// Get the output of the command
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+	}
+
+	cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+	var resp data.CommandOutputWrapper
+	resp.ApplicationID = version.ApplicationID.String()
+	resp.VersionID = version.ID
+	resp.VersionNumber = version.VersionNumber
+	resp.Command = strExternalCommand
+	resp.Output = cleanedupOutput
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	err = json.NewEncoder(w).Encode(resp)
+
+	if err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
 }
 
 func (h *ApplicationHandler) Plan(w http.ResponseWriter, r *http.Request) {
@@ -1265,19 +1371,71 @@ func (h *ApplicationHandler) Plan(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
+	vars := mux.Vars(r)
+	applicationid := vars["applicationid"]
+	versionnumber := vars["versionnumber"]
+	vn, _ := strconv.Atoi(versionnumber)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	var version data.Version
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	strExternalCommand := "terragrunt plan"
+	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
+	cmd := exec.Command("bash", "-c", strCommand)
+
+	// Get the output of the command
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+	}
+
+	cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+	var resp data.CommandOutputWrapper
+	resp.ApplicationID = version.ApplicationID.String()
+	resp.VersionID = version.ID
+	resp.VersionNumber = version.VersionNumber
+	resp.Command = strExternalCommand
+	resp.Output = cleanedupOutput
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	err = json.NewEncoder(w).Encode(resp)
+
+	if err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
 }
 
 func (h *ApplicationHandler) Apply(w http.ResponseWriter, r *http.Request) {
@@ -1295,19 +1453,71 @@ func (h *ApplicationHandler) Apply(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
+	vars := mux.Vars(r)
+	applicationid := vars["applicationid"]
+	versionnumber := vars["versionnumber"]
+	vn, _ := strconv.Atoi(versionnumber)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	var version data.Version
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	strExternalCommand := "terragrunt apply --auto-approve"
+	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
+	cmd := exec.Command("bash", "-c", strCommand)
+
+	// Get the output of the command
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+	}
+
+	cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+	var resp data.CommandOutputWrapper
+	resp.ApplicationID = version.ApplicationID.String()
+	resp.VersionID = version.ID
+	resp.VersionNumber = version.VersionNumber
+	resp.Command = strExternalCommand
+	resp.Output = cleanedupOutput
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	err = json.NewEncoder(w).Encode(resp)
+
+	if err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
 }
 
 func (h *ApplicationHandler) Destroy(w http.ResponseWriter, r *http.Request) {
@@ -1325,19 +1535,71 @@ func (h *ApplicationHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
+	vars := mux.Vars(r)
+	applicationid := vars["applicationid"]
+	versionnumber := vars["versionnumber"]
+	vn, _ := strconv.Atoi(versionnumber)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	var version data.Version
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+
+	if result.Error != nil {
+		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusInternalServerError,
+			helper.ErrorDatastoreRetrievalFailed,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
+
+		helper.ReturnError(
+			cl,
+			http.StatusNotFound,
+			helper.ErrorResourceNotFound,
+			requestid,
+			r,
+			&w,
+			span)
+		return
+	}
+
+	strExternalCommand := "terragrunt destroy --auto-approve"
+	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
+	cmd := exec.Command("bash", "-c", strCommand)
+
+	// Get the output of the command
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+	}
+
+	cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+	var resp data.CommandOutputWrapper
+	resp.ApplicationID = version.ApplicationID.String()
+	resp.VersionID = version.ID
+	resp.VersionNumber = version.VersionNumber
+	resp.Command = strExternalCommand
+	resp.Output = cleanedupOutput
+	if err != nil {
+		resp.Error = err.Error()
+	}
+
+	err = json.NewEncoder(w).Encode(resp)
+
+	if err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
 }
 
 func (h *ApplicationHandler) TGVersion(w http.ResponseWriter, r *http.Request) {
@@ -1760,66 +2022,6 @@ func (h *ApplicationHandler) ListState(w http.ResponseWriter, r *http.Request) {
 		span)
 }
 
-func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
 func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) {
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
@@ -1851,156 +2053,6 @@ func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) AddVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) SetVersionState(w http.ResponseWriter, r *http.Request) {
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 	defer span.End()

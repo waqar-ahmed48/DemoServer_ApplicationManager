@@ -149,3 +149,12 @@ func (a *Application) ToJSON(w io.Writer) error {
 func (a *Application) Initialize() {
 
 }
+
+func (a *Application) NewVersion() *Version {
+
+	v := NewVersion(len(a.Versions)+1, a.ID)
+
+	a.Versions = append(a.Versions, *v)
+
+	return v
+}

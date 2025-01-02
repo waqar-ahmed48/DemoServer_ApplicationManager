@@ -187,615 +187,7 @@ func (h ApplicationHandler) MVApplicationUpdate(next http.Handler) http.Handler 
 	})
 }
 
-func (h ApplicationHandler) MVPackageUpload(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVPackageDownload(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVVersion(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVVersionPost(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVVersionUpdate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVVersionArchive(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
 func (h ApplicationHandler) MVQueryAudit(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
-
-		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				requestid,
-				r,
-				&rw,
-				span)
-			return
-		}
-
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
-}
-
-func (h ApplicationHandler) MVGetPackageLink(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
@@ -1939,7 +1331,7 @@ func (h ApplicationHandler) MVDestroy(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 		defer span.End()
 
 		// Add trace context to the logger
@@ -1952,7 +1344,7 @@ func (h ApplicationHandler) MVDestroy(next http.Handler) http.Handler {
 
 		vars := mux.Vars(r)
 		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
+		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
 			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
@@ -1968,43 +1360,19 @@ func (h ApplicationHandler) MVDestroy(next http.Handler) http.Handler {
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
+		if len(versionnumber) == 0 {
+			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
+				helper.ErrorVersionNumberInvalid,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
-
 		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -2015,7 +1383,7 @@ func (h ApplicationHandler) MVApply(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 		defer span.End()
 
 		// Add trace context to the logger
@@ -2028,7 +1396,7 @@ func (h ApplicationHandler) MVApply(next http.Handler) http.Handler {
 
 		vars := mux.Vars(r)
 		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
+		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
 			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
@@ -2044,43 +1412,19 @@ func (h ApplicationHandler) MVApply(next http.Handler) http.Handler {
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
+		if len(versionnumber) == 0 {
+			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
+				helper.ErrorVersionNumberInvalid,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
-
 		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -2091,7 +1435,7 @@ func (h ApplicationHandler) MVPlan(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 		defer span.End()
 
 		// Add trace context to the logger
@@ -2104,7 +1448,7 @@ func (h ApplicationHandler) MVPlan(next http.Handler) http.Handler {
 
 		vars := mux.Vars(r)
 		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
+		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
 			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
@@ -2120,43 +1464,19 @@ func (h ApplicationHandler) MVPlan(next http.Handler) http.Handler {
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
+		if len(versionnumber) == 0 {
+			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
+				helper.ErrorVersionNumberInvalid,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
-
 		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -2167,7 +1487,7 @@ func (h ApplicationHandler) MVValidate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 		defer span.End()
 
 		// Add trace context to the logger
@@ -2180,7 +1500,7 @@ func (h ApplicationHandler) MVValidate(next http.Handler) http.Handler {
 
 		vars := mux.Vars(r)
 		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
+		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
 			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
@@ -2196,43 +1516,19 @@ func (h ApplicationHandler) MVValidate(next http.Handler) http.Handler {
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
+		if len(versionnumber) == 0 {
+			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
+				helper.ErrorVersionNumberInvalid,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
-
 		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -2319,7 +1615,7 @@ func (h ApplicationHandler) MVInit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
 		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
 		defer span.End()
 
 		// Add trace context to the logger
@@ -2332,7 +1628,7 @@ func (h ApplicationHandler) MVInit(next http.Handler) http.Handler {
 
 		vars := mux.Vars(r)
 		applicationid := vars["applicationid"]
-		var p data.ApplicationPatchWrapper
+		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
 			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
@@ -2348,43 +1644,19 @@ func (h ApplicationHandler) MVInit(next http.Handler) http.Handler {
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
+		if len(versionnumber) == 0 {
+			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
+				helper.ErrorVersionNumberInvalid,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
-
 		}
-
-		err = validator.New().Struct(p)
-		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				requestid,
-				r,
-				&rw,
-				err,
-				span)
-			return
-
-		}
-
-		// add the application to the context
-		ctx = context.WithValue(ctx, KeyApplicationPatchParamsRecord{}, p)
-		r = r.WithContext(ctx)
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)

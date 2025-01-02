@@ -29,6 +29,7 @@ type Config struct {
 		PackagesRootPath string `yaml:"packages_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_PACKAGES_ROOT_PATH"`
 		UploadRootPath   string `yaml:"upload_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_UPLOAD_ROOT_PATH"`
 		DownloadRootPath string `yaml:"download_root_path" env:"DEMOSERVER_APPLICATIONMANAGER_DOWNLOAD_ROOT_PATH"`
+		MaxPackageSize   int    `yaml:"max_package_size" env:"DEMOSERVER_APPLICATIONMANAGER_MAX_PACKAGE_SIZE"`
 	} `yaml:"storage"`
 
 	Configuration struct {
@@ -70,6 +71,11 @@ type Config struct {
 		NamePrefix string `yaml:"name_prefix" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_NAME_PREFIX"`
 		MaxResults int    `yaml:"max_results" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_MAX_RESULTS"`
 	} `yaml:"datalayer"`
+
+	AWS struct {
+		ACCESS_KEY        string `yaml:"access_key" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_ACCESS_KEY"`
+		SECRET_ACCESS_KEY string `yaml:"secret_access_key" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_SECRET_ACCESS_KEY"`
+	} `yaml:"aws"`
 }
 
 // Args is the struct for pass .

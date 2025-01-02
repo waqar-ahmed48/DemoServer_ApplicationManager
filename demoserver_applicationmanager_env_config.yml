@@ -11,9 +11,10 @@ server:
   worker_sleep_time: 5
   list_limit: 10
 storage:
-  packages_root_path: "./packages"
-  upload_root_path: "./uploads"
-  download_root_path: "./downloads"
+  packages_root_path: "./fileserver/packages"
+  upload_root_path: "./fileserver/uploads"
+  download_root_path: "./fileserver/downloads"
+  max_package_size: 10485760 #10MB max
 configuration:
   refresh_cycle: 60
   log_folder: ./logs

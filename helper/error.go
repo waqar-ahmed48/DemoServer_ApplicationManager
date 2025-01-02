@@ -168,6 +168,27 @@ const (
 
 	//ErrorNotImplemented represents operation not implemented.
 	ErrorNotImplemented
+
+	//ErrorVersionNumberInvalid represents invalid version number.
+	ErrorVersionNumberInvalid
+
+	//ErrorPackageInvalidContentType represents invalid applicationid.
+	ErrorPackageInvalidContentType
+
+	// ErrorPackageFailedToParseMultipartForm represents failure to parse multi-part form during package upload operation.
+	ErrorPackageFailedToParseMultipartForm
+
+	// ErrorPackageFailedToRetrieveFile represents failure to retrieve file.
+	ErrorPackageFailedToRetrieveFile
+
+	// ErrorPackageInvalidFileExtension file extension is not among supported ones.
+	ErrorPackageInvalidFileExtension
+
+	// ErrorPackageUploadFailed package upload failed.
+	ErrorPackageUploadFailed
+
+	//ErrorPackageLSCommandError represents errors returned by LS command
+	ErrorPackageLSCommandError
 )
 
 // Error represent the details of error occurred.
@@ -212,6 +233,13 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorVaultTLSConfigurationFailed:                    {"ApplicationManager_Err_000031", "Vault TLS Configuration failed", ""},
 	ErrorApplicationIDInvalid:                           {"ApplicationManager_Err_000032", "ApplicationID is Invalid", ""},
 	ErrorNotImplemented:                                 {"ApplicationManager_Err_000033", "Operation Not Implemented", ""},
+	ErrorVersionNumberInvalid:                           {"ApplicationManager_Err_000034", "VersionNumber is Invalid", ""},
+	ErrorPackageInvalidContentType:                      {"ApplicationManager_Err_000035", "Invalid content type. Only multipart/form-data is allowed", ""},
+	ErrorPackageFailedToParseMultipartForm:              {"ApplicationManager_Err_000036", "Failed to parse multi-part form.", ""},
+	ErrorPackageFailedToRetrieveFile:                    {"ApplicationManager_Err_000037", "Failed to retrieve file", ""},
+	ErrorPackageInvalidFileExtension:                    {"ApplicationManager_Err_000038", "Invalid file extension. Supported extensions: .7z, .tar, .gz, .zip", ""},
+	ErrorPackageUploadFailed:                            {"ApplicationManager_Err_000039", "Package upload failed", ""},
+	ErrorPackageLSCommandError:                          {"ApplicationManager_Err_000040", "Error returned by LS command", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error
