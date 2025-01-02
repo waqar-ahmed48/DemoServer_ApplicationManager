@@ -36,18 +36,13 @@ func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Reque
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
+	helper.ReturnError(cl,
 		http.StatusInternalServerError,
 		helper.ErrorNotImplemented,
+		fmt.Errorf("operation not implemented yet"),
 		requestid,
 		r,
 		&w,
-		err,
 		span)
 }
 
@@ -69,12 +64,11 @@ func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Reques
 	// Parse the multipart form
 	err := r.ParseMultipartForm(int64(h.cfg.Storage.MaxPackageSize))
 	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageFailedToParseMultipartForm, err, span)
-
 		helper.ReturnError(
 			cl,
 			http.StatusBadRequest,
 			helper.ErrorPackageFailedToParseMultipartForm,
+			err,
 			requestid,
 			r,
 			&w,
@@ -85,12 +79,11 @@ func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Reques
 	// Retrieve the file
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageFailedToParseMultipartForm, err, span)
-
 		helper.ReturnError(
 			cl,
 			http.StatusBadRequest,
 			helper.ErrorPackageFailedToParseMultipartForm,
+			err,
 			requestid,
 			r,
 			&w,
@@ -107,12 +100,11 @@ func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Reques
 	version, err := h.uploadPackage(applicationid, vn, file, handler, ctx)
 
 	if err != nil {
-		helper.LogError(cl, helper.ErrorPackageUploadFailed, err, span)
-
 		helper.ReturnError(
 			cl,
 			http.StatusInternalServerError,
 			helper.ErrorPackageUploadFailed,
+			err,
 			requestid,
 			r,
 			&w,
@@ -274,66 +266,52 @@ func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
+	var httpStatus int
+	var helperErr helper.ErrorTypeEnum
+	var err error
 
-	var version data.Version
+	_, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
 
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
+	if err == nil {
+		var version *data.Version
+		version, httpStatus, helperErr, err = h.validateVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
 
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
+		if err == nil {
+			strExternalCommand := "ls -laR --time-style=long-iso"
+			strCommand := `echo -e "Size\tDate\t\tTime\tName" && ` + strExternalCommand + ` --time-style=long-iso ` + version.PackagePath + `| awk '{print $5, $6, $7, $8}'`
+			cmd := exec.Command("bash", "-c", strCommand)
 
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
+			// Get the output of the command
+			output, err := cmd.CombinedOutput()
+
+			if err != nil {
+				helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+			}
+
+			cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+			var resp data.CommandOutputWrapper
+			resp.ApplicationID = version.ApplicationID.String()
+			resp.VersionID = version.ID
+			resp.VersionNumber = version.VersionNumber
+			resp.Command = strExternalCommand
+			resp.Output = cleanedupOutput
+			if err != nil {
+				resp.Error = err.Error()
+			}
+
+			err = json.NewEncoder(w).Encode(resp)
+
+			if err != nil {
+				helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+			}
+
+			return
+		}
+	}
+
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strCommand := `echo -e "Size\tDate\t\tTime\tName" && ls -laR --time-style=long-iso ` + version.PackagePath + `| awk '{print $5, $6, $7, $8}'`
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = "ls -laR"
-	resp.Output = string(output)
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
 }

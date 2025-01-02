@@ -12,10 +12,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os/exec"
 	"strconv"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel"
 )
@@ -131,12 +129,11 @@ func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Requ
 		Find(&applications) // Finds all application entries
 
 	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
 		helper.ReturnError(
 			cl,
 			http.StatusInternalServerError,
 			helper.ErrorDatastoreRetrievalFailed,
+			result.Error,
 			requestid,
 			r,
 			&w,
@@ -185,30 +182,12 @@ func (h ApplicationHandler) MVApplicationsGet(next http.Handler) http.Handler {
 		if limit_str != "" {
 			limit, err := strconv.Atoi(limit_str)
 			if err != nil {
-				helper.LogDebug(cl, helper.ErrorInvalidValueForLimit, err, span)
-
-				helper.ReturnError(
-					cl,
-					http.StatusBadRequest,
-					helper.ErrorInvalidValueForLimit,
-					requestid,
-					r,
-					&rw,
-					span)
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForLimit, err, requestid, r, &rw, span)
 				return
 			}
 
 			if limit <= 0 {
-				helper.LogDebug(cl, helper.ErrorLimitMustBeGtZero, helper.ErrNone, span)
-
-				helper.ReturnError(
-					cl,
-					http.StatusBadRequest,
-					helper.ErrorLimitMustBeGtZero,
-					requestid,
-					r,
-					&rw,
-					span)
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorLimitMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
 				return
 			}
 		}
@@ -217,30 +196,14 @@ func (h ApplicationHandler) MVApplicationsGet(next http.Handler) http.Handler {
 		if skip_str != "" {
 			skip, err := strconv.Atoi(skip_str)
 			if err != nil {
-				helper.LogDebug(cl, helper.ErrorInvalidValueForSkip, err, span)
-
-				helper.ReturnError(
-					cl,
-					http.StatusBadRequest,
-					helper.ErrorInvalidValueForSkip,
-					requestid,
-					r,
-					&rw,
-					span)
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForSkip, err, requestid, r, &rw, span)
 				return
 			}
 
 			if skip < 0 {
 				helper.LogDebug(cl, helper.ErrorSkipMustBeGtZero, helper.ErrNone, span)
 
-				helper.ReturnError(
-					cl,
-					http.StatusBadRequest,
-					helper.ErrorSkipMustBeGtZero,
-					requestid,
-					r,
-					&rw,
-					span)
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorSkipMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
 				return
 			}
 		}
@@ -301,44 +264,17 @@ func (h *ApplicationHandler) GetApplication(w http.ResponseWriter, r *http.Reque
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	var application data.Application
+	application, httpStatus, helperErr, err := h.getApplication(mux.Vars(r)["applicationid"])
 
-	result := h.pd.RODB().First(&application, "id = ?", applicationid)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
 
 	var oRespConn data.ApplicationResponseWrapper
 	_ = utilities.CopyMatchingFields(application, &oRespConn)
 
-	err := json.NewEncoder(w).Encode(oRespConn)
+	err = json.NewEncoder(w).Encode(oRespConn)
 
 	if err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
@@ -399,88 +335,29 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-
 	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
 
-	var application data.Application
+	applicationid := mux.Vars(r)["applicationid"]
 
-	result := h.pd.RODB().First(&application, "id = ?", applicationid)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	_ = utilities.CopyMatchingFields(p, &application)
-
-	err := h.updateApplication(&application, ctx)
+	application, httpStatus, helperErr, err := h.getApplication(applicationid)
 
 	if err != nil {
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		return
+	}
+	_ = utilities.CopyMatchingFields(p, &application)
 
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			requestid,
-			r,
-			&w,
-			span)
+	err = h.updateApplication(application, ctx)
+
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	result = h.pd.RODB().First(&application, "id = ?", applicationid)
+	application, httpStatus, helperErr, err = h.getApplication(applicationid)
 
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
 
@@ -545,71 +422,19 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
+	applicationid := mux.Vars(r)["applicationid"]
 
-	var application data.Application
-	var err error
-
-	application.ID, err = uuid.Parse(applicationid)
+	application, httpStatus, helperErr, err := h.getApplication(applicationid)
 
 	if err != nil {
-		helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, err, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusBadRequest,
-			helper.ErrorApplicationIDInvalid,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
 
-	result := h.pd.RODB().First(&application, "id = ?", applicationid)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	err = h.deleteApplication(&application, ctx)
+	err = h.deleteApplication(application, ctx)
 
 	if err != nil {
-		helper.LogDebug(cl, helper.ErrorDatastoreDeleteFailed, err, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusBadRequest,
-			helper.ErrorDatastoreDeleteFailed,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
 		return
 	}
 
@@ -745,16 +570,13 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 
 	// Check if the transaction started successfully
 	if tx.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, tx.Error, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
+		helper.ReturnError(cl,
 			http.StatusInternalServerError,
 			helper.ErrorDatastoreSaveFailed,
+			tx.Error,
 			requestid,
 			r,
 			&w,
-			tx.Error,
 			span)
 		return
 	}
@@ -764,16 +586,13 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	if result.Error != nil {
 		tx.Rollback()
 
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, result.Error, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
+		helper.ReturnError(cl,
 			http.StatusInternalServerError,
 			helper.ErrorDatastoreSaveFailed,
+			result.Error,
 			requestid,
 			r,
 			&w,
-			result.Error,
 			span)
 		return
 	}
@@ -781,62 +600,32 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	if result.RowsAffected != 1 {
 		tx.Rollback()
 
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, fmt.Errorf("no internal error"), requestid, r, &w, span)
 		return
 	}
 
 	err := tx.Commit().Error
 
 	if err != nil {
-		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
-
-		helper.ReturnErrorWithAdditionalInfo(
-			cl,
+		helper.ReturnError(cl,
 			http.StatusInternalServerError,
 			helper.ErrorDatastoreSaveFailed,
+			err,
 			requestid,
 			r,
 			&w,
-			tx.Error,
 			span)
 		return
 	}
 
 	applicationid := a.ID
-	var application data.Application
+	application, httpStatus, helperErr, err := h.getApplication(applicationid.String())
 
-	result = h.pd.RODB().First(&application, "id = ?", applicationid)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
+	if err != nil {
+		helper.ReturnError(cl,
+			httpStatus,
+			helperErr,
+			err,
 			requestid,
 			r,
 			&w,
@@ -854,1174 +643,6 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (h *ApplicationHandler) RunAll(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) RenderJson(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) Test(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) Untaint(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) Taint(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) ValidateInputs(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) Providers(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) ForceUnlock(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-	return
-}
-
-func (h *ApplicationHandler) HclFmt(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) Fmt(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) Init(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
-
-	var version data.Version
-
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strExternalCommand := "terragrunt init"
-	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = strExternalCommand
-	resp.Output = cleanedupOutput
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) HclValidate(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) Validate(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
-
-	var version data.Version
-
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strExternalCommand := "terragrunt validate"
-	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = strExternalCommand
-	resp.Output = cleanedupOutput
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) Plan(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
-
-	var version data.Version
-
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strExternalCommand := "terragrunt plan"
-	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = strExternalCommand
-	resp.Output = cleanedupOutput
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) Apply(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
-
-	var version data.Version
-
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strExternalCommand := "terragrunt apply --auto-approve"
-	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = strExternalCommand
-	resp.Output = cleanedupOutput
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) Destroy(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vars := mux.Vars(r)
-	applicationid := vars["applicationid"]
-	versionnumber := vars["versionnumber"]
-	vn, _ := strconv.Atoi(versionnumber)
-
-	var version data.Version
-
-	result := h.pd.RODB().First(&version, "application_id = ? AND version_number = ?", applicationid, vn)
-
-	if result.Error != nil {
-		helper.LogError(cl, helper.ErrorDatastoreRetrievalFailed, result.Error, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		helper.LogDebug(cl, helper.ErrorResourceNotFound, helper.ErrNone, span)
-
-		helper.ReturnError(
-			cl,
-			http.StatusNotFound,
-			helper.ErrorResourceNotFound,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	strExternalCommand := "terragrunt destroy --auto-approve"
-	strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`, version.PackagePath, h.cfg.AWS.ACCESS_KEY, h.cfg.AWS.SECRET_ACCESS_KEY, strExternalCommand)
-	cmd := exec.Command("bash", "-c", strCommand)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	var resp data.CommandOutputWrapper
-	resp.ApplicationID = version.ApplicationID.String()
-	resp.VersionID = version.ID
-	resp.VersionNumber = version.VersionNumber
-	resp.Command = strExternalCommand
-	resp.Output = cleanedupOutput
-	if err != nil {
-		resp.Error = err.Error()
-	}
-
-	err = json.NewEncoder(w).Encode(resp)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) TGVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) TofuVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) Output(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) GraphTofu(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) ShowWorkspace(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) SelectWorkspace(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) GetWorkspaces(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) ImportStateResource(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) RemoveStateResource(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) MoveStateResource(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
-func (h *ApplicationHandler) ListState(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
-}
-
 func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) {
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
@@ -2037,47 +658,40 @@ func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) 
 
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
+	helper.ReturnError(cl,
 		http.StatusInternalServerError,
 		helper.ErrorNotImplemented,
+		fmt.Errorf("operation not implemented yet"),
 		requestid,
 		r,
 		&w,
-		err,
 		span)
 }
 
-func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
+func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
+	application, httpStatus, helperError, err := h.getApplication(applicationid)
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	if err == nil {
+		if application.ConnectionID == "" {
+			return nil, http.StatusBadRequest, helper.ErrorConnectionMissing, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorConnectionMissing].Error())
+		}
+	}
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+	return application, httpStatus, helperError, nil
+}
 
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
+func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
+	var application data.Application
 
-	err := helper.ErrNotImplemented
+	result := h.pd.RODB().First(&application, "id = ?", applicationid)
 
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
+	if result.Error != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, result.Error
+	}
 
-	helper.ReturnErrorWithAdditionalInfo(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		requestid,
-		r,
-		&w,
-		err,
-		span)
+	if result.RowsAffected == 0 {
+		return nil, http.StatusNotFound, helper.ErrorResourceNotFound, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorResourceNotFound].Error())
+	}
+
+	return &application, http.StatusOK, helper.ErrorNone, nil
 }

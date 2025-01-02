@@ -6,6 +6,7 @@ import (
 	"DemoServer_ApplicationManager/utilities"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -34,12 +35,11 @@ func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
 		applicationid := v["applicationid"]
 
 		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorApplicationIDInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -53,12 +53,11 @@ func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
 		if limit_str != "" {
 			limit, err := strconv.Atoi(limit_str)
 			if err != nil {
-				helper.LogDebug(cl, helper.ErrorInvalidValueForLimit, err, span)
-
 				helper.ReturnError(
 					cl,
 					http.StatusBadRequest,
 					helper.ErrorInvalidValueForLimit,
+					fmt.Errorf("no internal error"),
 					requestid,
 					r,
 					&rw,
@@ -67,12 +66,11 @@ func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
 			}
 
 			if limit <= 0 {
-				helper.LogDebug(cl, helper.ErrorLimitMustBeGtZero, helper.ErrNone, span)
-
 				helper.ReturnError(
 					cl,
 					http.StatusBadRequest,
 					helper.ErrorLimitMustBeGtZero,
+					fmt.Errorf("no internal error"),
 					requestid,
 					r,
 					&rw,
@@ -85,12 +83,11 @@ func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
 		if skip_str != "" {
 			skip, err := strconv.Atoi(skip_str)
 			if err != nil {
-				helper.LogDebug(cl, helper.ErrorInvalidValueForSkip, err, span)
-
 				helper.ReturnError(
 					cl,
 					http.StatusBadRequest,
 					helper.ErrorInvalidValueForSkip,
+					fmt.Errorf("no internal error"),
 					requestid,
 					r,
 					&rw,
@@ -99,12 +96,11 @@ func (h ApplicationHandler) MVVersionsGet(next http.Handler) http.Handler {
 			}
 
 			if skip < 0 {
-				helper.LogDebug(cl, helper.ErrorSkipMustBeGtZero, helper.ErrNone, span)
-
 				helper.ReturnError(
 					cl,
 					http.StatusBadRequest,
 					helper.ErrorSkipMustBeGtZero,
+					fmt.Errorf("no internal error"),
 					requestid,
 					r,
 					&rw,
@@ -138,12 +134,11 @@ func (h ApplicationHandler) MVVersion(next http.Handler) http.Handler {
 		versionnumber := vars["versionnumber"]
 
 		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorApplicationIDInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -152,12 +147,12 @@ func (h ApplicationHandler) MVVersion(next http.Handler) http.Handler {
 		}
 
 		if len(versionnumber) == 0 {
-			helper.LogDebug(cl, helper.ErrorVersionNumberInvalid, helper.ErrNone, span)
 
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorVersionNumberInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -190,12 +185,11 @@ func (h ApplicationHandler) MVVersionPost(next http.Handler) http.Handler {
 		var p data.ApplicationPatchWrapper
 
 		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorApplicationIDInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -205,16 +199,14 @@ func (h ApplicationHandler) MVVersionPost(next http.Handler) http.Handler {
 
 		err := json.NewDecoder(r.Body).Decode(&p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 
@@ -222,16 +214,14 @@ func (h ApplicationHandler) MVVersionPost(next http.Handler) http.Handler {
 
 		err = validator.New().Struct(p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 
@@ -266,12 +256,11 @@ func (h ApplicationHandler) MVVersionUpdate(next http.Handler) http.Handler {
 		var p data.ApplicationPatchWrapper
 
 		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorApplicationIDInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -281,16 +270,14 @@ func (h ApplicationHandler) MVVersionUpdate(next http.Handler) http.Handler {
 
 		err := json.NewDecoder(r.Body).Decode(&p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 
@@ -298,16 +285,14 @@ func (h ApplicationHandler) MVVersionUpdate(next http.Handler) http.Handler {
 
 		err = validator.New().Struct(p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 
@@ -342,12 +327,11 @@ func (h ApplicationHandler) MVVersionArchive(next http.Handler) http.Handler {
 		var p data.ApplicationPatchWrapper
 
 		if len(applicationid) == 0 {
-			helper.LogDebug(cl, helper.ErrorApplicationIDInvalid, helper.ErrNone, span)
-
 			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorApplicationIDInvalid,
+				fmt.Errorf("no internal error"),
 				requestid,
 				r,
 				&rw,
@@ -357,16 +341,14 @@ func (h ApplicationHandler) MVVersionArchive(next http.Handler) http.Handler {
 
 		err := json.NewDecoder(r.Body).Decode(&p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 
@@ -374,16 +356,14 @@ func (h ApplicationHandler) MVVersionArchive(next http.Handler) http.Handler {
 
 		err = validator.New().Struct(p)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnErrorWithAdditionalInfo(
+			helper.ReturnError(
 				cl,
 				http.StatusBadRequest,
 				helper.ErrorInvalidJSONSchemaForParameter,
+				err,
 				requestid,
 				r,
 				&rw,
-				err,
 				span)
 			return
 

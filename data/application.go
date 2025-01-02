@@ -28,7 +28,9 @@ type Application struct {
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
-	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
+	// Cloud Connection to be used for orchestration of application
+	// required: false
+	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
 
 	Versions []Version `json:"versions"`
 
@@ -67,12 +69,21 @@ type ApplicationPostWrapper struct {
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
-	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
+	// Cloud Connection to be used for orchestration of application
+	// required: false
+	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
 }
 
 // ApplicationPatchWrapper represents Application attributes for PATCH request body schema.
 // swagger:model
 type ApplicationPatchWrapper struct {
+	// Description of Application
+	// required: false
+	Description string `json:"description" gorm:"index"`
+
+	// Cloud Connection to be used for orchestration of application
+	// required: false
+	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
 }
 
 // ApplicationResponseWrapper represents information Application resource returned by Post, Get and List endpoints

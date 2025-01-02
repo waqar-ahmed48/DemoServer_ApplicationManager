@@ -189,6 +189,15 @@ const (
 
 	//ErrorPackageLSCommandError represents errors returned by LS command
 	ErrorPackageLSCommandError
+
+	//ErrorConnectionMissing represents connection for application not initialized
+	ErrorConnectionMissing
+
+	//ErrorPackageNotUploaded represents no package available for version
+	ErrorPackageNotUploaded
+
+	//ErrorPackageInvalidState represents PackageUploaded is true yet PackagePath is not set
+	ErrorPackageInvalidState
 )
 
 // Error represent the details of error occurred.
@@ -196,6 +205,10 @@ type Error struct {
 	Code        string `json:"errorCode"`
 	Description string `json:"errorDescription"`
 	Help        string `json:"errorHelp"`
+}
+
+func (e Error) Error() string {
+	return e.Code + " - " + e.Description + " - " + e.Help
 }
 
 // ErrorDictionary represents log dictionary for microservice.
@@ -240,6 +253,9 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorPackageInvalidFileExtension:                    {"ApplicationManager_Err_000038", "Invalid file extension. Supported extensions: .7z, .tar, .gz, .zip", ""},
 	ErrorPackageUploadFailed:                            {"ApplicationManager_Err_000039", "Package upload failed", ""},
 	ErrorPackageLSCommandError:                          {"ApplicationManager_Err_000040", "Error returned by LS command", ""},
+	ErrorConnectionMissing:                              {"ApplicationManager_Err_000041", "connection for application not initialized", ""},
+	ErrorPackageNotUploaded:                             {"ApplicationManager_Err_000042", "package not uploaded for version", ""},
+	ErrorPackageInvalidState:                            {"ApplicationManager_Err_000043", "package is not in usable state", "try to upload the package again"},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error
@@ -292,23 +308,8 @@ type ErrorResponse struct {
 	RequestID string `json:"requestID"`
 }
 
-// GetErrorResponse prepares error response to be returned to caller.
-func GetErrorResponse(status int, err ErrorTypeEnum, r *http.Request, requestid string) ErrorResponse {
-	return ErrorResponse{
-		Timestamp:           time.Now().String(),
-		Status:              status,
-		ErrorCode:           ErrorDictionary[err].Code,
-		ErrorDescription:    ErrorDictionary[err].Description,
-		ErrorAdditionalInfo: "",
-		ErrorHelp:           ErrorDictionary[err].Help,
-		Endpoint:            r.URL.EscapedPath(),
-		Method:              r.Method,
-		RequestID:           requestid,
-	}
-}
-
-// GetErrorResponseWithAdditionalInfo prepares error response with additional original error contextual message to be returned to caller.
-func GetErrorResponseWithAdditionalInfo(status int, err ErrorTypeEnum, r *http.Request, requestid string, e error) ErrorResponse {
+// GetErrorResponse prepares error response with additional original error contextual message to be returned to caller.
+func GetErrorResponse(status int, err ErrorTypeEnum, r *http.Request, requestid string, e error) ErrorResponse {
 	return ErrorResponse{
 		Timestamp:           time.Now().String(),
 		Status:              status,
@@ -372,35 +373,20 @@ func LogInfo(cl *slog.Logger, err ErrorTypeEnum, e error, span trace.Span) {
 	}
 }
 
-// ReturnError prepares error json to be returned to caller.
-func ReturnError(cl *slog.Logger, status int, err ErrorTypeEnum, requestid string, r *http.Request, rw *http.ResponseWriter, span trace.Span) {
+// ReturnError prepares error json to be returned to caller with additional context.
+func ReturnError(cl *slog.Logger, status int, err ErrorTypeEnum, internalError error, requestid string, r *http.Request, rw *http.ResponseWriter, span trace.Span) {
+	LogError(cl, err, internalError, span)
+
 	errorResponse := GetErrorResponse(
 		status,
 		err,
 		r,
-		requestid)
-
-	http.Error(*rw, "", status)
-
-	e := json.NewEncoder(*rw).Encode(errorResponse)
-
-	if e != nil {
-		LogError(cl, ErrorJSONEncodingFailed, e, span)
-	}
-}
-
-// ReturnErrorWithAdditionalInfo prepares error json to be returned to caller with additional context.
-func ReturnErrorWithAdditionalInfo(cl *slog.Logger, status int, err ErrorTypeEnum, requestid string, r *http.Request, rw *http.ResponseWriter, e error, span trace.Span) {
-	errorResponse := GetErrorResponseWithAdditionalInfo(
-		status,
-		err,
-		r,
 		requestid,
-		e)
+		internalError)
 
 	http.Error(*rw, "", http.StatusBadRequest)
 
-	e = json.NewEncoder(*rw).Encode(errorResponse)
+	e := json.NewEncoder(*rw).Encode(errorResponse)
 
 	if e != nil {
 		LogError(cl, ErrorJSONEncodingFailed, e, span)

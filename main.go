@@ -149,7 +149,7 @@ func main() {
 	postAppRouter.Use(ah.MVAddApplication)
 
 	patchAppRouter := r.Methods(http.MethodPatch).Subrouter()
-	patchAppRouter.HandleFunc("/v1/applicationmgmt/application{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}}", ah.UpdateApplication)
+	patchAppRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}}", ah.UpdateApplication)
 	patchAppRouter.Use(otelhttp.NewMiddleware("PATCH /application"))
 	patchAppRouter.Use(ah.MVApplicationUpdate)
 
