@@ -201,8 +201,6 @@ func (h ApplicationHandler) MVApplicationsGet(next http.Handler) http.Handler {
 			}
 
 			if skip < 0 {
-				helper.LogDebug(cl, helper.ErrorSkipMustBeGtZero, helper.ErrNone, span)
-
 				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorSkipMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
 				return
 			}
@@ -345,7 +343,13 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
-	_ = utilities.CopyMatchingFields(p, &application)
+
+	err = utilities.CopyMatchingFields(p, application)
+
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
 
 	err = h.updateApplication(application, ctx)
 
@@ -452,7 +456,7 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.Context) error {
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	_, span := tr.Start(ctx, utilities.GetFunctionName())
 	defer span.End()
 
 	// Begin a transaction

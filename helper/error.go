@@ -198,6 +198,9 @@ const (
 
 	//ErrorPackageInvalidState represents PackageUploaded is true yet PackagePath is not set
 	ErrorPackageInvalidState
+
+	//ErrorJSONDecodingFailed represents error message for json decoding failed.
+	ErrorJSONDecodingFailed
 )
 
 // Error represent the details of error occurred.
@@ -256,6 +259,7 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorConnectionMissing:                              {"ApplicationManager_Err_000041", "connection for application not initialized", ""},
 	ErrorPackageNotUploaded:                             {"ApplicationManager_Err_000042", "package not uploaded for version", ""},
 	ErrorPackageInvalidState:                            {"ApplicationManager_Err_000043", "package is not in usable state", "try to upload the package again"},
+	ErrorJSONDecodingFailed:                             {"ApplicationManager_Err_000044", "json decoding failed", "check json data passed in post or patch body"},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error
