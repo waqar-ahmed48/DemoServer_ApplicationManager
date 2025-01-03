@@ -12,10 +12,16 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+)
+
+var (
+	iacCommandStore sync.Map // To store ongoing and completed commands
 )
 
 func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +292,10 @@ func (h *ApplicationHandler) getVersion(applicationid string, versionNumber stri
 	}
 
 	return &version, http.StatusOK, helper.ErrorNone, nil
+}
+
+func (h *ApplicationHandler) generateCommandID() string {
+	return uuid.New().String()
 }
 
 func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *http.Request, ctx context.Context, span trace.Span, command string) {
