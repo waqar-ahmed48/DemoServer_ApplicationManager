@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"DemoServer_ApplicationManager/data"
+	"DemoServer_ApplicationManager/datalayer"
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
 	"bytes"
@@ -13,17 +14,12 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-)
-
-var (
-	iacCommandStore sync.Map // To store ongoing and completed commands
 )
 
 func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
@@ -296,11 +292,29 @@ func (h *ApplicationHandler) getVersion(applicationid string, versionNumber stri
 	return &version, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) generateExecutionID() uuid.UUID {
-	return uuid.New()
+func (h *ApplicationHandler) getCommandOutput(applicationid string, versionNumber string, executionid string) (*data.AuditRecord, int, helper.ErrorTypeEnum, error) {
+	vn, _ := strconv.Atoi(versionNumber)
+
+	var a data.AuditRecord
+
+	result := h.pd.RODB().First(&a, "application_id = ? AND version_number = ? AND execution_id = ?", applicationid, vn, executionid)
+
+	if result.Error != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return nil, http.StatusNotFound, helper.ErrorResourceNotFound, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorResourceNotFound].Error())
+	}
+
+	return &a, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *http.Request, ctx context.Context, span trace.Span, command string) {
+func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *http.Request, command string, action uuid.UUID) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	defer span.End()
+
 	// Add trace context to the logger
 	traceLogger := h.l.With(
 		slog.String("trace_id", span.SpanContext().TraceID().String()),
@@ -333,45 +347,50 @@ func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *htt
 			var stdoutBuf, stderrBuf bytes.Buffer
 			cmd.Stdout = &stdoutBuf
 			cmd.Stderr = &stderrBuf
-			executionID := h.generateExecutionID()
 
-			result := &data.CommandOutput{
-				ExecutionID:   executionID,
-				VersionID:     version.ID,
-				ApplicationID: version.ApplicationID.String(),
-				VersionNumber: version.VersionNumber,
-				StartTime:     time.Now(),
-				Command:       command,
-				FullCommand:   strCommand,
-				Done:          make(chan bool, 1),
+			result := &data.AuditRecord{
+				ID:              uuid.New(),
+				ExecutionID:     uuid.New(),
+				VersionID:       version.ID,
+				ApplicationID:   version.ApplicationID,
+				VersionNumber:   version.VersionNumber,
+				ExecutionStatus: data.InProcess,
+				StartTime:       time.Now(),
+				Command:         command,
+				FullCommand:     strCommand,
+				Done:            make(chan bool, 1),
+				Action:          action,
 			}
-			iacCommandStore.Store(executionID, result)
+
+			err := datalayer.CreateObject(h.pd.RWDB(), &result, ctx, h.cfg.Server.PrefixMain)
+
+			if err != nil {
+				helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+			}
 
 			// Run the command in a separate goroutine
-			go func(id string, result *data.CommandOutput) {
+			go func(result *data.AuditRecord, ctx context.Context) {
 				defer close(result.Done)
 				err := cmd.Run()
-				result.Output = stdoutBuf.String()
-				result.Error = stderrBuf.String()
-				result.ErrorCode = err.Error()
-				iacCommandStore.Store(id, result) // Update the result in the map
-			}(executionID.String(), result)
-
-			/*
-				cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-				var resp data.CommandOutputWrapper
-				resp.ApplicationID = version.ApplicationID.String()
-				resp.VersionID = version.ID
-				resp.VersionNumber = version.VersionNumber
-				resp.Command = command
-				resp.Output = cleanedupOutput
+				result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
+				result.Error = utilities.StripEscapeSequences(stderrBuf.String())
 				if err != nil {
-					resp.Error = err.Error()
+					result.ErrorCode = err.Error()
+					result.Status = data.Failed
+				} else {
+					result.Status = data.Successful
 				}
-			*/
+				result.ExecutionStatus = data.Completed
+				result.EndTime = time.Now()
 
-			var resp data.CommandOutputWrapper
+				err = datalayer.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain)
+
+				if err != nil {
+					helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+				}
+			}(result, ctx)
+
+			var resp data.AuditRecordWrapper
 
 			_ = utilities.CopyMatchingFields(result, &resp)
 
@@ -383,6 +402,43 @@ func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *htt
 
 			return
 		}
+	}
+
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		return
+	}
+}
+
+func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	defer span.End()
+
+	// Add trace context to the logger
+	traceLogger := h.l.With(
+		slog.String("trace_id", span.SpanContext().TraceID().String()),
+		slog.String("span_id", span.SpanContext().SpanID().String()),
+	)
+
+	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+
+	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
+
+	ar, httpStatus, helperErr, err := h.getCommandOutput(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"], mux.Vars(r)["executionid"])
+
+	if err == nil {
+		var resp data.AuditRecordWrapper
+
+		_ = utilities.CopyMatchingFields(ar, &resp)
+
+		err = json.NewEncoder(w).Encode(&resp)
+
+		if err != nil {
+			helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONEncodingFailed, err, requestid, r, &w, span)
+		}
+
+		return
 	}
 
 	if err != nil {
@@ -429,8 +485,8 @@ func (h *ApplicationHandler) VersionExecShellCommand(w http.ResponseWriter, r *h
 
 			cleanedupOutput := utilities.StripEscapeSequences(string(output))
 
-			var resp data.CommandOutputWrapper
-			resp.ApplicationID = version.ApplicationID.String()
+			var resp data.AuditRecordWrapper
+			resp.ApplicationID = version.ApplicationID
 			resp.VersionID = version.ID
 			resp.VersionNumber = version.VersionNumber
 			resp.Command = command

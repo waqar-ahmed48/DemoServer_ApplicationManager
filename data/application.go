@@ -33,8 +33,6 @@ type Application struct {
 	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
 
 	Versions []Version `json:"versions"`
-
-	AuditTrail []Audit `json:"audit_trail"`
 }
 
 // ApplicationsResponse represents generic Application attributes which are returned in response of GET on applications endpoint.

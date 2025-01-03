@@ -164,3 +164,27 @@ func (o *ActionTypeEnum) UnmarshalJSON(b []byte) error {
 
 	return nil
 }
+
+/*
+// Implementing sql.Scanner for ActionTypeEnum
+func (e *ActionTypeEnum) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("invalid type for ActionTypeEnum: %T", value)
+	}
+
+	id, err := uuid.FromBytes(b)
+	if err != nil {
+		return err
+	}
+
+	*e = ActionTypeEnum(id)
+	return nil
+}
+
+// Implementing driver.Valuer for ActionTypeEnum
+func (e ActionTypeEnum) Value() (driver.Value, error) {
+	uuidValue := uuid.UUID(e)
+	return uuidValue[:], nil
+}
+*/

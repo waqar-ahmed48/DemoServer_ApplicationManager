@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"DemoServer_ApplicationManager/data"
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
 	"fmt"
@@ -11,39 +12,23 @@ import (
 )
 
 func (h *ApplicationHandler) Validate(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
 	command := "terragrunt validate"
-	h.VersionExecIaCCommand(w, r, r.Context(), span, command)
+	h.VersionExecIacCommand(w, r, command, data.Validate)
 }
 
 func (h *ApplicationHandler) Plan(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
 	command := "terragrunt plan"
-	h.VersionExecIaCCommand(w, r, r.Context(), span, command)
+	h.VersionExecIacCommand(w, r, command, data.Plan)
 }
 
 func (h *ApplicationHandler) Apply(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
 	command := "terragrunt apply --auto-approve"
-	h.VersionExecIaCCommand(w, r, r.Context(), span, command)
+	h.VersionExecIacCommand(w, r, command, data.Apply)
 }
 
 func (h *ApplicationHandler) Destroy(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
 	command := "terragrunt destroy --auto-approve"
-	h.VersionExecIaCCommand(w, r, r.Context(), span, command)
+	h.VersionExecIacCommand(w, r, command, data.Destroy)
 }
 
 func (h *ApplicationHandler) TGVersion(w http.ResponseWriter, r *http.Request) {
@@ -321,14 +306,15 @@ func (h *ApplicationHandler) Fmt(w http.ResponseWriter, r *http.Request) {
 		span)
 }
 
+func (h *ApplicationHandler) GetIacCommandResult(w http.ResponseWriter, r *http.Request) {
+
+	h.VersionIacCommandResult(w, r, r.Context())
+}
+
 func (h *ApplicationHandler) Init(w http.ResponseWriter, r *http.Request) {
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
 	command := "terragrunt init"
-	h.VersionExecIaCCommand(w, r, r.Context(), span, command)
+	h.VersionExecIacCommand(w, r, command, data.Init)
 }
 
 func (h *ApplicationHandler) HclValidate(w http.ResponseWriter, r *http.Request) {

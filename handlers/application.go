@@ -351,7 +351,7 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err = h.updateApplication(application, ctx)
+	err = datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
 
 	if err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
@@ -481,35 +481,6 @@ func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.
 	return nil
 }
 
-func (h *ApplicationHandler) updateApplication(a *data.Application, ctx context.Context) error {
-
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
-	defer span.End()
-
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
-		return tx.Error
-	}
-
-	result := tx.Save(a)
-
-	if result.Error != nil {
-		tx.Rollback()
-		return result.Error
-	}
-
-	// Commit the transaction
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
-}
-
 func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Request) {
 
 	// swagger:operation POST /application Application AddApplication
@@ -569,58 +540,7 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	//set dummy ownerid for now.
 	a.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
-		helper.ReturnError(cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			tx.Error,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	result := tx.Create(&a)
-
-	if result.Error != nil {
-		tx.Rollback()
-
-		helper.ReturnError(cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			result.Error,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
-
-	if result.RowsAffected != 1 {
-		tx.Rollback()
-
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, fmt.Errorf("no internal error"), requestid, r, &w, span)
-		return
-	}
-
-	err := tx.Commit().Error
-
-	if err != nil {
-		helper.ReturnError(cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreSaveFailed,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
-		return
-	}
+	err := datalayer.CreateObject(h.pd.RWDB(), &a, r.Context(), h.cfg.Server.PrefixMain)
 
 	applicationid := a.ID
 	application, httpStatus, helperErr, err := h.getApplication(applicationid.String())

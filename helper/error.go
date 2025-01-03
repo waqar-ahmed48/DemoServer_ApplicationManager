@@ -201,6 +201,9 @@ const (
 
 	//ErrorJSONDecodingFailed represents error message for json decoding failed.
 	ErrorJSONDecodingFailed
+
+	// ErrorExecutionIDInvalid represents invalid applicationid.
+	ErrorExecutionIDInvalid
 )
 
 // Error represent the details of error occurred.
@@ -260,6 +263,7 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorPackageNotUploaded:                             {"ApplicationManager_Err_000042", "package not uploaded for version", ""},
 	ErrorPackageInvalidState:                            {"ApplicationManager_Err_000043", "package is not in usable state", "try to upload the package again"},
 	ErrorJSONDecodingFailed:                             {"ApplicationManager_Err_000044", "json decoding failed", "check json data passed in post or patch body"},
+	ErrorExecutionIDInvalid:                             {"ApplicationManager_Err_000045", "execution id invalid", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error

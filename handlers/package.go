@@ -290,8 +290,8 @@ func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
 
 			cleanedupOutput := utilities.StripEscapeSequences(string(output))
 
-			var resp data.CommandOutputWrapper
-			resp.ApplicationID = version.ApplicationID.String()
+			var resp data.AuditRecordWrapper
+			resp.ApplicationID = version.ApplicationID
 			resp.VersionID = version.ID
 			resp.VersionNumber = version.VersionNumber
 			resp.Command = strExternalCommand
