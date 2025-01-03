@@ -1,6 +1,10 @@
 package data
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // CommandOutputWrapper represents schema for response of command executed by application manager including output
 //
@@ -10,9 +14,13 @@ type CommandOutput struct {
 	VersionID     uuid.UUID `json:"versionid"`
 	ApplicationID string    `json:"applicationid"`
 	VersionNumber int       `json:"version_number" gorm:"index"`
+	StartTime     time.Time `json:"start_time"`
+	EndTime       time.Time `json:"end_time"`
 	Command       string    `json:"command"`
+	FullCommand   string    `json:"full_command"`
 	Output        string    `json:"output"`
 	Error         string    `json:"error"`
+	ErrorCode     string    `json:"error_code"`
 	Done          chan bool `json:"_"`
 }
 
@@ -24,6 +32,8 @@ type CommandOutputWrapper struct {
 	VersionID     uuid.UUID `json:"versionid"`
 	ApplicationID string    `json:"applicationid"`
 	VersionNumber int       `json:"version_number" gorm:"index"`
+	StartTime     time.Time `json:"start_time"`
+	EndTime       time.Time `json:"end_time"`
 	Command       string    `json:"command"`
 	Output        string    `json:"output"`
 	Error         string    `json:"error"`

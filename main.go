@@ -303,6 +303,11 @@ func main() {
 	initRouter.Use(otelhttp.NewMiddleware("POST /application/version/init"))
 	initRouter.Use(ah.MVInit)
 
+	initRouter := r.Methods(http.MethodGet).Subrouter()
+	initRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}}/version/{versionnumber:[0-9]{1,4}}/result/{executionid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}}", ah.GetIacCommandResult)
+	initRouter.Use(otelhttp.NewMiddleware("POST /application/version/result"))
+	initRouter.Use(ah.MVGetIacCommandResult)
+
 	fmtRouter := r.Methods(http.MethodPost).Subrouter()
 	fmtRouter.HandleFunc("/v1/applicationmgmt/application/{applicationid:[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}}/version/{versionnumber:[0-9]{1,4}}/fmt", ah.Fmt)
 	fmtRouter.Use(otelhttp.NewMiddleware("POST /application/version/fmt"))

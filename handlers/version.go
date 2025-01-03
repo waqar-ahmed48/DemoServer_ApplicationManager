@@ -4,6 +4,7 @@ import (
 	"DemoServer_ApplicationManager/data"
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -294,8 +296,8 @@ func (h *ApplicationHandler) getVersion(applicationid string, versionNumber stri
 	return &version, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) generateCommandID() string {
-	return uuid.New().String()
+func (h *ApplicationHandler) generateExecutionID() uuid.UUID {
+	return uuid.New()
 }
 
 func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *http.Request, ctx context.Context, span trace.Span, command string) {
@@ -325,28 +327,55 @@ func (h *ApplicationHandler) VersionExecIaCCommand(w http.ResponseWriter, r *htt
 				h.cfg.AWS.ACCESS_KEY,
 				h.cfg.AWS.SECRET_ACCESS_KEY,
 				command)
+
 			cmd := exec.Command("bash", "-c", strCommand)
 
-			// Get the output of the command
-			output, err := cmd.CombinedOutput()
+			var stdoutBuf, stderrBuf bytes.Buffer
+			cmd.Stdout = &stdoutBuf
+			cmd.Stderr = &stderrBuf
+			executionID := h.generateExecutionID()
 
-			if err != nil {
-				helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
+			result := &data.CommandOutput{
+				ExecutionID:   executionID,
+				VersionID:     version.ID,
+				ApplicationID: version.ApplicationID.String(),
+				VersionNumber: version.VersionNumber,
+				StartTime:     time.Now(),
+				Command:       command,
+				FullCommand:   strCommand,
+				Done:          make(chan bool, 1),
 			}
+			iacCommandStore.Store(executionID, result)
 
-			cleanedupOutput := utilities.StripEscapeSequences(string(output))
+			// Run the command in a separate goroutine
+			go func(id string, result *data.CommandOutput) {
+				defer close(result.Done)
+				err := cmd.Run()
+				result.Output = stdoutBuf.String()
+				result.Error = stderrBuf.String()
+				result.ErrorCode = err.Error()
+				iacCommandStore.Store(id, result) // Update the result in the map
+			}(executionID.String(), result)
+
+			/*
+				cleanedupOutput := utilities.StripEscapeSequences(string(output))
+
+				var resp data.CommandOutputWrapper
+				resp.ApplicationID = version.ApplicationID.String()
+				resp.VersionID = version.ID
+				resp.VersionNumber = version.VersionNumber
+				resp.Command = command
+				resp.Output = cleanedupOutput
+				if err != nil {
+					resp.Error = err.Error()
+				}
+			*/
 
 			var resp data.CommandOutputWrapper
-			resp.ApplicationID = version.ApplicationID.String()
-			resp.VersionID = version.ID
-			resp.VersionNumber = version.VersionNumber
-			resp.Command = command
-			resp.Output = cleanedupOutput
-			if err != nil {
-				resp.Error = err.Error()
-			}
 
-			err = json.NewEncoder(w).Encode(resp)
+			_ = utilities.CopyMatchingFields(result, &resp)
+
+			err = json.NewEncoder(w).Encode(&resp)
 
 			if err != nil {
 				helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
