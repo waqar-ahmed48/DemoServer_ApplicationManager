@@ -10,11 +10,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 )
 
@@ -602,6 +605,66 @@ func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Ap
 	}
 
 	return application, httpStatus, helperError, nil
+}
+
+func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.Context) (access_key string, secret_access_key string, err error) {
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   10 * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid + "/creds"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	if err != nil {
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return
+	}
+
+	b, _ := io.ReadAll(resp.Body)
+
+	var rc data.CredsAWSConnectionResponse
+
+	err = json.Unmarshal(b, &rc)
+	if err != nil {
+		return
+	}
+
+	if rc.Data.AccessKey == "" || rc.Data.SecretKey == "" {
+		err = fmt.Errorf("creds not generated")
+		return
+	}
+
+	access_key = rc.Data.AccessKey
+	secret_access_key = rc.Data.SecretKey
+
+	return
 }
 
 func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
