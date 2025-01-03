@@ -1,0 +1,49 @@
+server:
+  port: 5679
+  app_name: DemoServer
+  microservice_name: ApplicationManager
+  prefix_main: DemoServer_ApplicationManager
+  prefix_worker: DemoServer_ApplicationManager_Worker
+  http_read_timeout: 300
+  http_write_timeout: 300
+  http_idle_timeout: 300
+  http_shutdown_timeout: 30
+  worker_sleep_time: 5
+  list_limit: 10
+storage:
+  packages_root_path: "./fileserver/packages"
+  upload_root_path: "./fileserver/uploads"
+  download_root_path: "./fileserver/downloads"
+  max_package_size: 10485760 #10MB max
+configuration:
+  refresh_cycle: 60
+  log_folder: ./logs
+  log_file: DemoServer_ApplicationManager_log.json
+postgres:
+  host: 127.0.0.1
+  port: 5432
+  rousername: foo
+  rwusername: foo
+  ropassword: bar
+  rwpassword: bar
+  roconnectionpoolsize: 425
+  rwconnectionpoolsize: 425
+  sslmode: false
+vault:
+  host: 127.0.0.1
+  port: 8200
+  roleid: foo
+  secretid: bar
+  https: true
+  tlsskipverify: false
+  pathprefix: demoserver
+otlp:
+  host: 127.0.0.1
+  port: 4318
+  endpoint: 
+  https: true
+  tlsskipverify: false
+  batchduration: 5
+datalayer:
+  name_prefix: DemoServer_APPLICATIONMANAGER
+  max_results: 10000
