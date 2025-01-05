@@ -337,6 +337,8 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
+	//var payload map[string]interface{}
+	//payload = r.Context().Value(KeyApplicationPatchParamsRecord{}).(map[string]interface{})
 
 	applicationid := mux.Vars(r)["applicationid"]
 
@@ -371,23 +373,25 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if application.ConnectionID != p.ConnectionID {
-		if application.ConnectionID != "" {
-			err := h.unlinkAppFromConnection(application, ctx)
+	if p.ConnectionID != nil {
+		if application.ConnectionID != *p.ConnectionID {
+			if application.ConnectionID != "" {
+				err := h.unlinkAppFromConnection(application, ctx)
+
+				if err != nil {
+					tx.Rollback()
+					helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToUnlinkFromConnection, err, requestid, r, &w, span)
+					return
+				}
+			}
+
+			err := h.linkAppToConnection(applicationid, *p.ConnectionID, ctx)
 
 			if err != nil {
 				tx.Rollback()
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToUnlinkFromConnection, err, requestid, r, &w, span)
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
 				return
 			}
-		}
-
-		err := h.linkAppToConnection(applicationid, p.ConnectionID, ctx)
-
-		if err != nil {
-			tx.Rollback()
-			helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
-			return
 		}
 	}
 

@@ -85,15 +85,15 @@ type ApplicationPostWrapper struct {
 type ApplicationPatchWrapper struct {
 	// Description of Application
 	// required: false
-	Description string `json:"description" gorm:"index"`
+	Description *string `json:"description,omitempty" validate:"omitempty"`
 
 	// State of Application
 	// required: true
-	State ApplicationStateTypeEnum `json:"state" gorm:"index"`
+	State *ApplicationStateTypeEnum `json:"state,omitempty" validate:"omitempty"`
 
 	// Cloud Connection to be used for orchestration of application
 	// required: false
-	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
+	ConnectionID *string `json:"connectionid,omitempty" validate:"omitempty,uuid"`
 }
 
 // ApplicationResponseWrapper represents information Application resource returned by Post, Get and List endpoints
