@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type KeyApplicationRecord struct{}
@@ -86,129 +88,21 @@ func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Requ
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
 	vars := r.URL.Query()
+	limit := h.parseQueryParam(vars, "limit", h.list_limit, h.cfg.DataLayer.MaxResults)
+	skip := h.parseQueryParam(vars, "skip", 0, math.MaxInt32)
 
-	limit, skip := h.list_limit, 0
-
-	limit_str := vars.Get("limit")
-	if limit_str != "" {
-		limit, _ = strconv.Atoi(limit_str)
-	}
-
-	skip_str := vars.Get("skip")
-	if skip_str != "" {
-		skip, _ = strconv.Atoi(skip_str)
-	}
-
-	if limit == -1 || limit > h.cfg.DataLayer.MaxResults {
-		limit = h.cfg.DataLayer.MaxResults
-	}
-
-	var response data.ApplicationsResponse
-
-	var applications []data.Application
-
-	result := h.pd.RODB().
-		Limit(limit).
-		Offset(skip).
-		Order("name").      // Orders by the name in the application table
-		Find(&applications) // Finds all application entries
-
-	if result.Error != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			result.Error,
-			requestid,
-			r,
-			&w,
-			span)
+	applications, err := h.fetchApplications(limit, skip)
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	response.Total = len(applications)
-	response.Skip = skip
-	response.Limit = limit
-	if response.Total == 0 {
-		response.Applications = ([]data.ApplicationResponseWrapper{})
-	} else {
-		for _, value := range applications {
-			var oRespConn data.ApplicationResponseWrapper
-			_ = utilities.CopyMatchingFields(value, &oRespConn)
-			response.Applications = append(response.Applications, oRespConn)
-		}
-	}
-
-	err := json.NewEncoder(w).Encode(response)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h ApplicationHandler) MVApplicationsGet(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := r.URL.Query()
-
-		limit_str := vars.Get("limit")
-		if limit_str != "" {
-			limit, err := strconv.Atoi(limit_str)
-			if err != nil {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForLimit, err, requestid, r, &rw, span)
-				return
-			}
-
-			if limit <= 0 {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorLimitMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
-				return
-			}
-		}
-
-		skip_str := vars.Get("skip")
-		if skip_str != "" {
-			skip, err := strconv.Atoi(skip_str)
-			if err != nil {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForSkip, err, requestid, r, &rw, span)
-				return
-			}
-
-			if skip < 0 {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorSkipMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
-				return
-			}
-		}
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
+	response := h.buildApplicationsResponse(applications, limit, skip)
+	h.writeResponse(w, cl, response, span)
 }
 
 // GetApplication returns Application resource based on applicationid parameter
@@ -248,35 +142,17 @@ func (h *ApplicationHandler) GetApplication(w http.ResponseWriter, r *http.Reque
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	application, httpStatus, helperErr, err := h.getApplication(mux.Vars(r)["applicationid"])
-
+	applicationID := mux.Vars(r)["applicationid"]
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
+	h.writeResponse(w, cl, application, span)
 }
 
 func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Request) {
@@ -319,60 +195,24 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	patch := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
+	applicationID := mux.Vars(r)["applicationid"]
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
-
-	applicationid := mux.Vars(r)["applicationid"]
-
-	application, httpStatus, helperErr, err := h.getApplication(applicationid)
-
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusNotFound, helper.ErrorResourceNotFound, err, requestid, r, &w, span)
 		return
 	}
 
-	err = utilities.CopyMatchingFields(p, application)
-
-	if err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	err = datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
-
-	if err != nil {
+	if err := h.updateApplication(application, patch, ctx); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	application, httpStatus, helperErr, err = h.getApplication(applicationid)
-
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
+	h.writeResponse(w, cl, application, span)
 }
 
 // DeleteApplication deletes the Application from datastore
@@ -412,73 +252,25 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	applicationid := mux.Vars(r)["applicationid"]
-
-	application, httpStatus, helperErr, err := h.getApplication(applicationid)
-
+	applicationID := mux.Vars(r)["applicationid"]
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusNotFound, helper.ErrorResourceNotFound, err, requestid, r, &w, span)
 		return
 	}
 
-	err = h.deleteApplication(application, ctx)
-
-	if err != nil {
-		helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
+	if err := h.deleteApplication(application); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	var response data.DeleteApplicationResponse
-	response.StatusCode = http.StatusNoContent
-	response.Status = http.StatusText(response.StatusCode)
-
-	err = json.NewEncoder(w).Encode(response)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.Context) error {
-
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(ctx, utilities.GetFunctionName())
-	defer span.End()
-
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
-		return tx.Error
-	}
-
-	// Delete from applications
-	if err := tx.Exec("DELETE FROM applications WHERE id = ?", a.ID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete application: %w", err)
-	}
-
-	// Commit the transaction
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	h.writeResponse(w, cl, data.DeleteApplicationResponse{
+		StatusCode: http.StatusNoContent,
+		Status:     http.StatusText(http.StatusNoContent),
+	}, span)
 }
 
 func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Request) {
@@ -516,80 +308,95 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	newApp := data.NewApplication(h.cfg)
+	newApp.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+	postWrapper := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
+	utilities.CopyMatchingFields(postWrapper, newApp)
 
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	p := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
-
-	a := data.NewApplication(h.cfg)
-	_ = a.NewVersion()
-
-	utilities.CopyMatchingFields(p, a)
-
-	//set dummy ownerid for now.
-	a.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
-
-	err := datalayer.CreateObject(h.pd.RWDB(), &a, r.Context(), h.cfg.Server.PrefixMain)
-
-	applicationid := a.ID
-	application, httpStatus, helperErr, err := h.getApplication(applicationid.String())
-
-	if err != nil {
-		helper.ReturnError(cl,
-			httpStatus,
-			helperErr,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
+	if err := datalayer.CreateObject(h.pd.RWDB(), &newApp, ctx, h.cfg.Server.PrefixMain); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
+	h.writeResponse(w, cl, newApp, span)
+}
 
-	err = json.NewEncoder(w).Encode(oRespConn)
+func (h *ApplicationHandler) parseQueryParam(vars url.Values, key string, defaultValue, maxValue int) int {
+	valueStr := vars.Get(key)
+	if valueStr != "" {
+		value, err := strconv.Atoi(valueStr)
+		if err == nil && value >= 0 {
+			return int(math.Min(float64(value), float64(maxValue)))
+		}
+	}
+	return defaultValue
+}
 
-	if err != nil {
+func (h *ApplicationHandler) fetchApplications(limit, skip int) ([]data.Application, error) {
+	var applications []data.Application
+	result := h.pd.RODB().Limit(limit).Offset(skip).Order("name").Find(&applications)
+	return applications, result.Error
+}
+
+func (h *ApplicationHandler) fetchApplication(applicationID string) (*data.Application, error) {
+	var application data.Application
+	result := h.pd.RODB().First(&application, "id = ?", applicationID)
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("application not found")
+	}
+	return &application, result.Error
+}
+
+func (h *ApplicationHandler) updateApplication(application *data.Application, patch data.ApplicationPatchWrapper, ctx context.Context) error {
+	utilities.CopyMatchingFields(patch, application)
+	return datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
+}
+
+func (h *ApplicationHandler) deleteApplication(application *data.Application) error {
+	tx := h.pd.RWDB().Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	if err := tx.Exec("DELETE FROM applications WHERE id = ?", application.ID).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete application: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (h *ApplicationHandler) buildApplicationsResponse(applications []data.Application, limit, skip int) data.ApplicationsResponse {
+	response := data.ApplicationsResponse{
+		Total:        len(applications),
+		Limit:        limit,
+		Skip:         skip,
+		Applications: make([]data.ApplicationResponseWrapper, 0, len(applications)),
+	}
+
+	for _, app := range applications {
+		var wrapped data.ApplicationResponseWrapper
+		utilities.CopyMatchingFields(app, &wrapped)
+		response.Applications = append(response.Applications, wrapped)
+	}
+	return response
+}
+
+func (h *ApplicationHandler) writeResponse(w http.ResponseWriter, cl *slog.Logger, data interface{}, span trace.Span) {
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
 }
 
 func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	helper.ReturnError(cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		fmt.Errorf("operation not implemented yet"),
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {

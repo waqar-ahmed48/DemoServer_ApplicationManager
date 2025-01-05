@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -22,44 +21,15 @@ import (
 )
 
 func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	helper.ReturnError(cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		fmt.Errorf("operation not implemented yet"),
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	// Parse the multipart form
 	err := r.ParseMultipartForm(int64(h.cfg.Storage.MaxPackageSize))
@@ -252,19 +222,8 @@ func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber i
 }
 
 func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	var httpStatus int
 	var helperErr helper.ErrorTypeEnum

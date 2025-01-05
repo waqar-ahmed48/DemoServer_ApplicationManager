@@ -23,79 +23,22 @@ import (
 )
 
 func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) AddVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	version, httpStatus, helperErr, err := h.getVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
 
@@ -115,19 +58,8 @@ func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	vs := mux.Vars(r)
 	applicationid := vs["applicationid"]
@@ -196,59 +128,17 @@ func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *ApplicationHandler) SetVersionState(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) validateVersion(applicationid string, versionNumber string) (*data.Version, int, helper.ErrorTypeEnum, error) {
