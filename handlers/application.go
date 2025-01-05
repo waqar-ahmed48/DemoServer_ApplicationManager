@@ -10,11 +10,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 )
 
@@ -334,6 +337,8 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
+	//var payload map[string]interface{}
+	//payload = r.Context().Value(KeyApplicationPatchParamsRecord{}).(map[string]interface{})
 
 	applicationid := mux.Vars(r)["applicationid"]
 
@@ -344,14 +349,53 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Begin a transaction
+	tx := h.pd.RWDB().Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+	}
+
 	err = utilities.CopyMatchingFields(p, application)
 
 	if err != nil {
+		tx.Rollback()
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	err = datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
+	err = utilities.UpdateObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain)
+
+	if err != nil {
+		tx.Rollback()
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+		return
+	}
+
+	if p.ConnectionID != nil {
+		if application.ConnectionID != *p.ConnectionID {
+			if application.ConnectionID != "" {
+				err := h.unlinkAppFromConnection(application, ctx)
+
+				if err != nil {
+					tx.Rollback()
+					helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToUnlinkFromConnection, err, requestid, r, &w, span)
+					return
+				}
+			}
+
+			err := h.linkAppToConnection(applicationid, *p.ConnectionID, ctx)
+
+			if err != nil {
+				tx.Rollback()
+				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
+				return
+			}
+		}
+	}
+
+	err = tx.Commit().Error
 
 	if err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
@@ -435,6 +479,11 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if application.State != data.ApplicationState_Deactivated {
+		helper.ReturnError(cl, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error()), requestid, r, &w, span)
+		return
+	}
+
 	err = h.deleteApplication(application, ctx)
 
 	if err != nil {
@@ -465,6 +514,26 @@ func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.
 	// Check if the transaction started successfully
 	if tx.Error != nil {
 		return tx.Error
+	}
+
+	// Unlink from connection
+	err := h.unlinkAppFromConnection(a, ctx)
+
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to unlink connection: %w", err)
+	}
+
+	// Delete from applications
+	if err := tx.Exec("DELETE FROM audit_records WHERE application_id = ?", a.ID).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to purge audit_records: %w", err)
+	}
+
+	// Delete from applications
+	if err := tx.Exec("DELETE FROM versions WHERE application_id = ?", a.ID).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to purge versions: %w", err)
 	}
 
 	// Delete from applications
@@ -517,7 +586,7 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	//       "$ref": "#/definitions/ErrorResponse"
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
 	defer span.End()
 
 	// Add trace context to the logger
@@ -540,7 +609,39 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	//set dummy ownerid for now.
 	a.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
-	err := datalayer.CreateObject(h.pd.RWDB(), &a, r.Context(), h.cfg.Server.PrefixMain)
+	// Begin a transaction
+	tx := h.pd.RWDB().Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
+		return
+	}
+
+	err := utilities.CreateObject(h.pd.RWDB(), &a, r.Context(), h.cfg.Server.PrefixMain)
+
+	if err != nil {
+		tx.Rollback()
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
+		return
+	}
+
+	if a.ConnectionID != "" {
+		err := h.linkAppToConnection(a.ID.String(), a.ConnectionID, ctx)
+
+		if err != nil {
+			tx.Rollback()
+			helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
+			return
+		}
+	}
+
+	err = tx.Commit().Error
+
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
+		return
+	}
 
 	applicationid := a.ID
 	application, httpStatus, helperErr, err := h.getApplication(applicationid.String())
@@ -599,9 +700,74 @@ func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Ap
 		if application.ConnectionID == "" {
 			return nil, http.StatusBadRequest, helper.ErrorConnectionMissing, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorConnectionMissing].Error())
 		}
+
+		if application.State != data.ApplicationState_Activated {
+			return nil, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error())
+		}
 	}
 
 	return application, httpStatus, helperError, nil
+}
+
+func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.Context) (*data.CredsAWSConnectionResponse, error) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid + "/creds"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return nil, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return nil, err
+	}
+
+	b, _ := io.ReadAll(resp.Body)
+
+	var rc data.CredsAWSConnectionResponse
+
+	err = json.Unmarshal(b, &rc)
+	if err != nil {
+		return nil, err
+	}
+
+	if rc.Data.AccessKey == "" || rc.Data.SecretKey == "" {
+		err = fmt.Errorf("creds not generated")
+		return nil, err
+	}
+
+	return &rc, nil
 }
 
 func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
@@ -618,4 +784,103 @@ func (h *ApplicationHandler) getApplication(applicationid string) (*data.Applica
 	}
 
 	return &application, http.StatusOK, helper.ErrorNone, nil
+}
+
+func (h *ApplicationHandler) linkAppToConnection(applicationid string, connectionid string, ctx context.Context) error {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + connectionid + "/link/" + applicationid
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return err
+	}
+
+	return nil
+}
+
+func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Application, ctx context.Context) error {
+
+	if application.ConnectionID == "" {
+		return nil
+	}
+
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + application.ConnectionID + "/unlink/" + application.ID.String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return err
+	}
+
+	return nil
 }

@@ -123,36 +123,19 @@ func (h ApplicationHandler) MVApplicationUpdate(next http.Handler) http.Handler 
 			return
 		}
 
-		err := json.NewDecoder(r.Body).Decode(&p)
+		// Decode JSON into a map
+		var payload map[string]interface{}
+		err := json.NewDecoder(r.Body).Decode(&payload)
 		if err != nil {
-			helper.LogDebug(cl, helper.ErrorInvalidJSONSchemaForParameter, err, span)
-
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				err,
-				requestid,
-				r,
-				&rw,
-				span)
+			helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidJSONSchemaForParameter, err, requestid, r, &rw, span)
 			return
-
 		}
 
-		err = validator.New().Struct(p)
+		// Validate and wrap the payload
+		err = utilities.ValidateAndWrapPayload(payload, &p)
 		if err != nil {
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorInvalidJSONSchemaForParameter,
-				err,
-				requestid,
-				r,
-				&rw,
-				span)
+			helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidJSONSchemaForParameter, err, requestid, r, &rw, span)
 			return
-
 		}
 
 		// add the application to the context
