@@ -41,6 +41,7 @@ connectionmanager:
   host: 127.0.0.1
   port: 5678
   https: false
+  timeout: 10
 otlp:
   host: 127.0.0.1
   port: 4318

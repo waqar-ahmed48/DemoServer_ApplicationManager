@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"DemoServer_ApplicationManager/data"
-	"DemoServer_ApplicationManager/datalayer"
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
 	"bytes"
@@ -329,8 +328,7 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 	var err error
 	var application *data.Application
 	var version *data.Version
-	var access_key string
-	var secret_access_key string
+	var creds *data.CredsAWSConnectionResponse
 
 	application, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
 
@@ -339,7 +337,7 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 	}
 
 	if err == nil {
-		access_key, secret_access_key, err = h.generateAWSCreds(application.ConnectionID, ctx)
+		creds, err = h.generateAWSCreds(application.ConnectionID, ctx)
 	}
 
 	if err == nil {
@@ -347,10 +345,11 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 		var strCommand string
 
 		if (action == data.Apply) || (action == data.Destroy) || (action == data.Plan) {
-			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s my_terragrunt:latest "%s"`,
+			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_SESSION_TOKEN=%s my_terragrunt:latest "%s"`,
 				version.PackagePath,
-				access_key,
-				secret_access_key,
+				creds.Data.AccessKey,
+				creds.Data.SecretKey,
+				creds.Data.SessionToken,
 				command)
 
 		} else {
@@ -380,16 +379,19 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 			RequestID: uuid.MustParse(requestid),
 		}
 
-		err := datalayer.CreateObject(h.pd.RWDB(), &result, ctx, h.cfg.Server.PrefixMain)
+		err := utilities.CreateObject(h.pd.RWDB(), &result, ctx, h.cfg.Server.PrefixMain)
 
 		if err != nil {
 			helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		}
 
 		// Run the command in a separate goroutine
-		go func(result *data.AuditRecord, ctx context.Context) {
+		go func(result *data.AuditRecord, latency int, ctx context.Context) {
 			defer close(result.Done)
-			time.Sleep(10 * time.Second)
+			if latency > 0 {
+				time.Sleep(10 * time.Second)
+			}
+
 			err := cmd.Run()
 			result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
 			result.Error = utilities.StripEscapeSequences(stderrBuf.String())
@@ -402,12 +404,12 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 			result.ExecutionStatus = data.Completed
 			result.EndTime = time.Now()
 
-			err = datalayer.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain)
+			err = utilities.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain)
 
 			if err != nil {
 				helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 			}
-		}(result, ctx)
+		}(result, creds.Latency, ctx)
 
 		var resp data.AuditRecordWrapper
 
@@ -464,69 +466,3 @@ func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *h
 		return
 	}
 }
-
-/*
-func (h *ApplicationHandler) VersionExecShellCommand(w http.ResponseWriter, r *http.Request, ctx context.Context, span trace.Span, externalCommand string, command string) {
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	var httpStatus int
-	var helperErr helper.ErrorTypeEnum
-	var err error
-
-	_, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
-
-	if err == nil {
-		var version *data.Version
-		version, httpStatus, helperErr, err = h.validateVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
-
-		if err == nil {
-			strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`,
-				version.PackagePath,
-				h.cfg.AWS.ACCESS_KEY,
-				h.cfg.AWS.SECRET_ACCESS_KEY,
-				command)
-			cmd := exec.Command("bash", "-c", strCommand)
-
-			// Get the output of the command
-			output, err := cmd.CombinedOutput()
-
-			if err != nil {
-				helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-			}
-
-			cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-			var resp data.AuditRecordWrapper
-			resp.ApplicationID = version.ApplicationID
-			resp.VersionID = version.ID
-			resp.VersionNumber = version.VersionNumber
-			resp.Command = command
-			resp.Output = cleanedupOutput
-			if err != nil {
-				resp.Error = err.Error()
-			}
-
-			err = json.NewEncoder(w).Encode(resp)
-
-			if err != nil {
-				helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-			}
-
-			return
-		}
-	}
-
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-}
-*/

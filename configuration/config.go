@@ -61,9 +61,10 @@ type Config struct {
 	} `yaml:"vault"`
 
 	ConnectionManager struct {
-		Host  string `yaml:"host" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_HOST"`
-		Port  int    `yaml:"port" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_PORT"`
-		HTTPS bool   `yaml:"https" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_CONNECTIONMANAGER_HTTPS"`
+		Host    string `yaml:"host" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_HOST"`
+		Port    int    `yaml:"port" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_PORT"`
+		HTTPS   bool   `yaml:"https" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_CONNECTIONMANAGER_HTTPS"`
+		Timeout int    `yaml:"timeout" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_CONNECTIONMANAGER_TIMEOUT"`
 	} `yaml:"connectionmanager"`
 
 	OTLP struct {

@@ -13,6 +13,10 @@ type CredsAWSConnectionResponse struct {
 	// out: lease_duration
 	LeaseDuration int `json:"lease_duration"`
 
+	// Latency in seconds before credentials can be used with AWS
+	// out: latency
+	Latency int `json:"latency"`
+
 	Data struct {
 		// AccessKey for generated access
 		// out: access_key

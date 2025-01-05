@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -204,6 +205,15 @@ const (
 
 	// ErrorExecutionIDInvalid represents invalid applicationid.
 	ErrorExecutionIDInvalid
+
+	//ErrorApplicationUnexpectedState represents invalid application state
+	ErrorApplicationUnexpectedState
+
+	//ErrorApplicationFailedToUnlinkFromConnection reprsents failure of operation to unlink application from connection
+	ErrorApplicationFailedToUnlinkFromConnection
+
+	//ErrorApplicationFailedToLinkConnection represent failure of operation to link application with connection
+	ErrorApplicationFailedToLinkConnection
 )
 
 // Error represent the details of error occurred.
@@ -213,8 +223,8 @@ type Error struct {
 	Help        string `json:"errorHelp"`
 }
 
-func (e Error) Error() string {
-	return e.Code + " - " + e.Description + " - " + e.Help
+func (e Error) Error() error {
+	return fmt.Errorf("%s", e.Code+" - "+e.Description+" - "+e.Help)
 }
 
 // ErrorDictionary represents log dictionary for microservice.
@@ -264,6 +274,9 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorPackageInvalidState:                            {"ApplicationManager_Err_000043", "package is not in usable state", "try to upload the package again"},
 	ErrorJSONDecodingFailed:                             {"ApplicationManager_Err_000044", "json decoding failed", "check json data passed in post or patch body"},
 	ErrorExecutionIDInvalid:                             {"ApplicationManager_Err_000045", "execution id invalid", ""},
+	ErrorApplicationUnexpectedState:                     {"ApplicationManager_Err_000046", "operation not allowed while application is in this state.", ""},
+	ErrorApplicationFailedToUnlinkFromConnection:        {"ApplicationManager_Err_000047", "unlink operation of application from connection failed", ""},
+	ErrorApplicationFailedToLinkConnection:              {"ApplicationManager_Err_000048", "link operation of application to connection failed", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/mholt/archiver"
+	"go.opentelemetry.io/otel"
+	"gorm.io/gorm"
 )
 
 type MultiThreadedFunc func(threadId int, opsPerThread int)
@@ -256,4 +259,106 @@ func StripEscapeSequences(s string) string {
 	cleanOutput := re.ReplaceAllString(s, "")
 
 	return cleanOutput
+}
+
+func UpdateObject[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	// Begin a transaction
+	tx := db.Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	result := tx.Save(obj)
+
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func UpdateObjectWithoutTx[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	result := db.Save(obj)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	return nil
+}
+
+func CreateObject[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	// Begin a transaction
+	tx := db.Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	result := tx.Create(obj)
+
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func CreateObjectTx[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	// Begin a transaction
+	tx := db.Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	result := tx.Create(obj)
+
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
