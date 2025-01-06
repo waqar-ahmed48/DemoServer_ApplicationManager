@@ -60,6 +60,13 @@ type Config struct {
 		PathPrefix    string `yaml:"pathprefix" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_PATH_PREFIX"`
 	} `yaml:"vault"`
 
+	ConnectionManager struct {
+		Host    string `yaml:"host" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_HOST"`
+		Port    int    `yaml:"port" env:"DEMOSERVER_APPLICATIONMANAGER_CONNECTIONMANAGER_PORT"`
+		HTTPS   bool   `yaml:"https" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_CONNECTIONMANAGER_HTTPS"`
+		Timeout int    `yaml:"timeout" env:"DEMOSERVER_APPLICATIONMANAGER_VAULT_CONNECTIONMANAGER_TIMEOUT"`
+	} `yaml:"connectionmanager"`
+
 	OTLP struct {
 		Host          string `yaml:"host" env:"DEMOSERVER_APPLICATIONMANAGER_OTLP_HOST"`
 		Port          int    `yaml:"port" env:"DEMOSERVER_APPLICATIONMANAGER_OTLP_PORT"`
@@ -71,11 +78,6 @@ type Config struct {
 		NamePrefix string `yaml:"name_prefix" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_NAME_PREFIX"`
 		MaxResults int    `yaml:"max_results" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_MAX_RESULTS"`
 	} `yaml:"datalayer"`
-
-	AWS struct {
-		ACCESS_KEY        string `yaml:"access_key" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_ACCESS_KEY"`
-		SECRET_ACCESS_KEY string `yaml:"secret_access_key" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_SECRET_ACCESS_KEY"`
-	} `yaml:"aws"`
 }
 
 // Args is the struct for pass .

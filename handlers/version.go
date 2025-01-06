@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"DemoServer_ApplicationManager/data"
-	"DemoServer_ApplicationManager/datalayer"
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"os"
@@ -17,8 +18,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/opentracing/opentracing-go"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
@@ -181,89 +180,115 @@ func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *htt
 	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	applicationID := mux.Vars(r)["applicationid"]
-	versionNumber := mux.Vars(r)["versionnumber"]
+	// Add trace context to the logger
+	traceLogger := h.l.With(
+		slog.String("trace_id", span.SpanContext().TraceID().String()),
+		slog.String("span_id", span.SpanContext().SpanID().String()),
+	)
 
-	_, httpStatus, helperErr, err := h.validateApplication(applicationID)
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+
+	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
+
+	var httpStatus int
+	var helperErr helper.ErrorTypeEnum
+	var err error
+	var application *data.Application
+	var version *data.Version
+	var creds *data.CredsAWSConnectionResponse
+
+	application, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
+
+	if err == nil {
+		version, httpStatus, helperErr, err = h.validateVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
+	}
+
+	if err == nil {
+		creds, err = h.generateAWSCreds(application.ConnectionID, ctx)
+	}
+
+	if err == nil {
+		//strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-east-2 my_terragrunt:latest "%s"`,
+		var strCommand string
+
+		if (action == data.Apply) || (action == data.Destroy) || (action == data.Plan) {
+			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_SESSION_TOKEN=%s my_terragrunt:latest "%s"`,
+				version.PackagePath,
+				creds.Data.AccessKey,
+				creds.Data.SecretKey,
+				creds.Data.SessionToken,
+				command)
+
+		} else {
+			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir my_terragrunt:latest "%s"`,
+				version.PackagePath,
+				command)
+		}
+
+		cmd := exec.Command("bash", "-c", strCommand)
+
+		var stdoutBuf, stderrBuf bytes.Buffer
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
+
+		result := &data.AuditRecord{
+			ID:              uuid.New(),
+			ExecutionID:     uuid.New(),
+			VersionID:       version.ID,
+			ApplicationID:   version.ApplicationID,
+			VersionNumber:   version.VersionNumber,
+			ExecutionStatus: data.InProcess,
+			StartTime:       time.Now(),
+			Command:         command,
+			//FullCommand:     "strCommand",
+			Done:      make(chan bool, 1),
+			Action:    action,
+			RequestID: uuid.MustParse(requestid),
+		}
+
+		err := utilities.CreateObject(h.pd.RWDB(), &result, ctx, h.cfg.Server.PrefixMain)
+
+		if err != nil {
+			helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+		}
+
+		// Run the command in a separate goroutine
+		go func(result *data.AuditRecord, latency int, ctx context.Context) {
+			defer close(result.Done)
+			if latency > 0 {
+				time.Sleep(10 * time.Second)
+			}
+
+			err := cmd.Run()
+			result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
+			result.Error = utilities.StripEscapeSequences(stderrBuf.String())
+			if err != nil {
+				result.ErrorCode = err.Error()
+				result.Status = data.Failed
+			} else {
+				result.Status = data.Successful
+			}
+			result.ExecutionStatus = data.Completed
+			result.EndTime = time.Now()
+
+			err = utilities.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain)
+
+			if err != nil {
+				helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+			}
+		}(result, creds.Latency, ctx)
+
+		var resp data.AuditRecordWrapper
+
+		_ = utilities.CopyMatchingFields(result, &resp)
+
+		err = json.NewEncoder(w).Encode(&resp)
+
+		if err != nil {
+			helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+		}
+
 		return
-	}
-
-	version, httpStatus, helperErr, err := h.validateVersion(applicationID, versionNumber)
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-
-	// Prepare the command to execute
-	strCommand := h.prepareDockerCommand(version.PackagePath, command)
-
-	result := h.createAuditRecord(version, command, strCommand, action)
-	if err := datalayer.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	// Execute the command asynchronously
-	go h.executeCommand(ctx, result, strCommand, requestid, r, cl, w, span)
-
-	// Prepare response
-	var resp data.AuditRecordWrapper
-	if err := utilities.CopyMatchingFields(result, &resp); err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONEncodingFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	h.writeResponse(w, cl, resp, span)
-}
-
-func (h *ApplicationHandler) prepareDockerCommand(packagePath, command string) string {
-	return fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-west-2 my_terragrunt:latest "%s"`,
-		packagePath,
-		h.cfg.AWS.ACCESS_KEY,
-		h.cfg.AWS.SECRET_ACCESS_KEY,
-		command)
-}
-
-func (h *ApplicationHandler) createAuditRecord(version *data.Version, command, fullCommand string, action uuid.UUID) *data.AuditRecord {
-	return &data.AuditRecord{
-		ID:              uuid.New(),
-		ExecutionID:     uuid.New(),
-		VersionID:       version.ID,
-		ApplicationID:   version.ApplicationID,
-		VersionNumber:   version.VersionNumber,
-		ExecutionStatus: data.InProcess,
-		StartTime:       time.Now(),
-		Command:         command,
-		FullCommand:     fullCommand,
-		Done:            make(chan bool, 1),
-		Action:          action,
-	}
-}
-
-func (h *ApplicationHandler) executeCommand(ctx context.Context, result *data.AuditRecord, strCommand, requestID string, r *http.Request, cl helper.Logger, w http.ResponseWriter, span opentracing.Span) {
-	defer close(result.Done)
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd := exec.Command("bash", "-c", strCommand)
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-
-	err := cmd.Run()
-	result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
-	result.Error = utilities.StripEscapeSequences(stderrBuf.String())
-	if err != nil {
-		result.ErrorCode = err.Error()
-		result.Status = data.Failed
-	} else {
-		result.Status = data.Successful
-	}
-	result.ExecutionStatus = data.Completed
-	result.EndTime = time.Now()
-
-	if err := datalayer.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestID, r, &w, span)
 	}
 }
 
@@ -293,44 +318,4 @@ func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *h
 		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
-}
-
-func (h *ApplicationHandler) VersionExecShellCommand(w http.ResponseWriter, r *http.Request, ctx context.Context, span trace.Span, externalCommand string, command string) {
-	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
-	defer span.End()
-
-	applicationID := mux.Vars(r)["applicationid"]
-	versionNumber := mux.Vars(r)["versionnumber"]
-
-	_, httpStatus, helperErr, err := h.validateApplication(applicationID)
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-
-	version, httpStatus, helperErr, err := h.validateVersion(applicationID, versionNumber)
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-
-	// Prepare the command to execute
-	strCommand := h.prepareDockerCommand(version.PackagePath, command)
-
-	// Get the output of the command
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-	}
-
-	cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-	result := h.createAuditRecord(version, command, strCommand, action, cleanedupOutput, err)
-	if err := datalayer.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	h.writeResponse(w, cl, result, span)
 }

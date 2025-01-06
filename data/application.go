@@ -28,6 +28,10 @@ type Application struct {
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
+	// State of Application
+	// required: true
+	State ApplicationStateTypeEnum `json:"state" validate:"required" gorm:"index"`
+
 	// Cloud Connection to be used for orchestration of application
 	// required: false
 	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
@@ -67,6 +71,10 @@ type ApplicationPostWrapper struct {
 	// required: false
 	Description string `json:"description" gorm:"index"`
 
+	// State of Application
+	// required: true
+	State ApplicationStateTypeEnum `json:"state" validate:"required" gorm:"index"`
+
 	// Cloud Connection to be used for orchestration of application
 	// required: false
 	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
@@ -77,11 +85,15 @@ type ApplicationPostWrapper struct {
 type ApplicationPatchWrapper struct {
 	// Description of Application
 	// required: false
-	Description string `json:"description" gorm:"index"`
+	Description *string `json:"description,omitempty" validate:"omitempty"`
+
+	// State of Application
+	// required: true
+	State *ApplicationStateTypeEnum `json:"state,omitempty" validate:"omitempty"`
 
 	// Cloud Connection to be used for orchestration of application
 	// required: false
-	ConnectionID string `json:"connectionid,omitempty" validate:"omitempty,uuid4" gorm:"index"`
+	ConnectionID *string `json:"connectionid,omitempty" validate:"omitempty,uuid"`
 }
 
 // ApplicationResponseWrapper represents information Application resource returned by Post, Get and List endpoints
@@ -100,6 +112,10 @@ type ApplicationResponseWrapper struct {
 	// Description of Application
 	// required: false
 	Description string `json:"description" gorm:"index"`
+
+	// State of Application
+	// required: true
+	State ApplicationStateTypeEnum `json:"state" gorm:"index"`
 
 	ConnectionID string `json:"connectionid" validate:"uuid4" gorm:"index"`
 }
@@ -122,6 +138,7 @@ func NewApplication(cfg *configuration.Config) *Application {
 	var a Application
 
 	a.ID = uuid.New()
+	a.State = ApplicationState_Activated
 
 	return &a
 }

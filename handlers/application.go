@@ -10,13 +10,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -212,6 +216,14 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Begin a transaction
+	tx := h.pd.RWDB().Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+	}
+
 	if err := h.updateApplication(application, patch, ctx); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
@@ -264,6 +276,11 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 	application, err := h.fetchApplication(applicationID)
 	if err != nil {
 		helper.ReturnError(cl, http.StatusNotFound, helper.ErrorResourceNotFound, err, requestid, r, &w, span)
+		return
+	}
+
+	if application.State != data.ApplicationState_Deactivated {
+		helper.ReturnError(cl, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error()), requestid, r, &w, span)
 		return
 	}
 
@@ -419,9 +436,74 @@ func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Ap
 		if application.ConnectionID == "" {
 			return nil, http.StatusBadRequest, helper.ErrorConnectionMissing, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorConnectionMissing].Error())
 		}
+
+		if application.State != data.ApplicationState_Activated {
+			return nil, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error())
+		}
 	}
 
 	return application, httpStatus, helperError, nil
+}
+
+func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.Context) (*data.CredsAWSConnectionResponse, error) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid + "/creds"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return nil, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return nil, err
+	}
+
+	b, _ := io.ReadAll(resp.Body)
+
+	var rc data.CredsAWSConnectionResponse
+
+	err = json.Unmarshal(b, &rc)
+	if err != nil {
+		return nil, err
+	}
+
+	if rc.Data.AccessKey == "" || rc.Data.SecretKey == "" {
+		err = fmt.Errorf("creds not generated")
+		return nil, err
+	}
+
+	return &rc, nil
 }
 
 func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
@@ -438,4 +520,103 @@ func (h *ApplicationHandler) getApplication(applicationid string) (*data.Applica
 	}
 
 	return &application, http.StatusOK, helper.ErrorNone, nil
+}
+
+func (h *ApplicationHandler) linkAppToConnection(applicationid string, connectionid string, ctx context.Context) error {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + connectionid + "/link/" + applicationid
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return err
+	}
+
+	return nil
+}
+
+func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Application, ctx context.Context) error {
+
+	if application.ConnectionID == "" {
+		return nil
+	}
+
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + application.ConnectionID + "/unlink/" + application.ID.String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return err
+	}
+
+	return nil
 }
