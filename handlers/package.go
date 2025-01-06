@@ -5,19 +5,20 @@ import (
 	"DemoServer_ApplicationManager/helper"
 	"DemoServer_ApplicationManager/utilities"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel"
+	"gorm.io/gorm"
 )
 
 func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Request) {
@@ -28,36 +29,20 @@ func (h *ApplicationHandler) GetPackageLink(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Request) {
-	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	// Parse the multipart form
 	err := r.ParseMultipartForm(int64(h.cfg.Storage.MaxPackageSize))
 	if err != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusBadRequest,
-			helper.ErrorPackageFailedToParseMultipartForm,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorPackageFailedToParseMultipartForm, err, requestid, r, &w, span)
 		return
 	}
 
 	// Retrieve the file
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusBadRequest,
-			helper.ErrorPackageFailedToParseMultipartForm,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorPackageFailedToParseMultipartForm, err, requestid, r, &w, span)
 		return
 	}
 	defer file.Close()
@@ -70,26 +55,17 @@ func (h *ApplicationHandler) UploadPackage(w http.ResponseWriter, r *http.Reques
 	version, err := h.uploadPackage(applicationid, vn, file, handler, ctx)
 
 	if err != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorPackageUploadFailed,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorPackageUploadFailed, err, requestid, r, &w, span)
 		return
 	}
 
 	var oRespConn data.VersionResponseWrapper
-	_ = utilities.CopyMatchingFields(version, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	if err := utilities.CopyMatchingFields(version, &oRespConn); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONEncodingFailed, err, requestid, r, &w, span)
+		return
 	}
+
+	h.writeResponse(w, cl, oRespConn, span)
 }
 
 func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber int, file multipart.File, handler *multipart.FileHeader, ctx context.Context) (*data.Version, error) {
@@ -98,122 +74,48 @@ func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber i
 	_, span := tr.Start(ctx, utilities.GetFunctionName())
 	defer span.End()
 
-	validExtensions := []string{".7z", ".tar", ".gz", ".zip"}
-	fileExt := strings.ToLower(handler.Filename[strings.LastIndex(handler.Filename, "."):])
-	isValidExt := false
-	for _, ext := range validExtensions {
-		if fileExt == ext {
-			isValidExt = true
-			break
-		}
-	}
-	if !isValidExt {
-		return nil, fmt.Errorf("unsupported file extension")
+	// Validate file extension
+	if err := h.validateFileExtension(handler.Filename); err != nil {
+		return nil, err
 	}
 
-	// Begin a transaction
+	// Start transaction
 	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
 
-	var version data.Version
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
-	var application data.Application
-
-	result := tx.First(&application, "id = ?", applicationid)
-
-	if result.Error != nil {
-		tx.Rollback()
-		return nil, result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		tx.Rollback()
-		return nil, result.Error
-	}
-
-	result = tx.First(&version, "application_id = ? AND version_number = ?", applicationid, versionNumber)
-
-	if result.Error != nil {
-		tx.Rollback()
-		return nil, result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		tx.Rollback()
-		return nil, result.Error
-	}
-
-	// Save the file
-	uploadFilePath := h.cfg.Storage.PackagesRootPath + "/" + application.OwnerID + "/" + applicationid + "/" + strconv.Itoa(versionNumber)
-
-	err := utilities.TouchDirectory(uploadFilePath)
+	// Validate application and version
+	application, version, err := h.validateApplicationAndVersion(tx, applicationID, versionNumber)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 
-	uploadFilePath += "/" + handler.Filename
-	uploadedFile, err := os.Create(uploadFilePath)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-	defer uploadedFile.Close()
-
-	_, err = io.Copy(uploadedFile, file)
+	// Save and decompress file
+	uploadFilePath, packageFilePath, err := h.saveAndDecompressFile(file, handler.Filename, application, applicationID, versionNumber)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 
-	packageFilePath := h.cfg.Storage.PackagesRootPath + "/" + application.OwnerID + "/" + applicationid + "/" + strconv.Itoa(versionNumber) + "/"
-
-	err = utilities.TouchDirectory(packageFilePath)
-
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	if fileExt == ".7z" {
-		err = utilities.Decompress7z(uploadFilePath, packageFilePath)
-	} else if fileExt == ".tar" {
-		err = utilities.DecompressTar(uploadFilePath, packageFilePath)
-	} else if fileExt == ".gz" {
-		err = utilities.DecompressGzip(uploadFilePath, packageFilePath)
-	} else if fileExt == ".zip" {
-		err = utilities.DecompressZip(uploadFilePath, packageFilePath)
-	} else {
-		err = fmt.Errorf("unsupported file extension")
-	}
-
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	err = os.Remove(uploadFilePath)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
+	// Update version information
 	version.PackageUploaded = true
 	version.PackagePath = packageFilePath
 	version.PackageUploadedAt = time.Now()
 
-	result = tx.Save(version)
-
-	if result.Error != nil {
+	if err := tx.Save(&version).Error; err != nil {
 		tx.Rollback()
-		return nil, result.Error
+		return nil, err
 	}
 
-	// Commit the transaction
+	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -221,56 +123,120 @@ func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber i
 	return &version, nil
 }
 
-func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
-	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
-	defer span.End()
+func (h *ApplicationHandler) executeListCommand(path string, externalCommand string) (string, error) {
+	command := `echo -e "Size\tDate\t\tTime\tName" && ` + externalCommand + ` ` + path + ` | awk '{print $5, $6, $7, $8}'`
+	cmd := exec.Command("bash", "-c", command)
+	output, err := cmd.CombinedOutput()
 
-	var httpStatus int
-	var helperErr helper.ErrorTypeEnum
-	var err error
+	return utilities.StripEscapeSequences(string(output)), err
+}
 
-	_, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
+func (h *ApplicationHandler) validateFileExtension(filename string) error {
+	validExtensions := []string{".7z", ".tar", ".gz", ".zip"}
+	fileExt := strings.ToLower(filepath.Ext(filename))
 
-	if err == nil {
-		var version *data.Version
-		version, httpStatus, helperErr, err = h.validateVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
-
-		if err == nil {
-			strExternalCommand := "ls -laR --time-style=long-iso"
-			strCommand := `echo -e "Size\tDate\t\tTime\tName" && ` + strExternalCommand + ` --time-style=long-iso ` + version.PackagePath + `| awk '{print $5, $6, $7, $8}'`
-			cmd := exec.Command("bash", "-c", strCommand)
-
-			// Get the output of the command
-			output, err := cmd.CombinedOutput()
-
-			if err != nil {
-				helper.LogDebug(cl, helper.ErrorPackageLSCommandError, err, span)
-			}
-
-			cleanedupOutput := utilities.StripEscapeSequences(string(output))
-
-			var resp data.AuditRecordWrapper
-			resp.ApplicationID = version.ApplicationID
-			resp.VersionID = version.ID
-			resp.VersionNumber = version.VersionNumber
-			resp.Command = strExternalCommand
-			resp.Output = cleanedupOutput
-			if err != nil {
-				resp.Error = err.Error()
-			}
-
-			err = json.NewEncoder(w).Encode(resp)
-
-			if err != nil {
-				helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-			}
-
-			return
+	for _, ext := range validExtensions {
+		if fileExt == ext {
+			return nil
 		}
 	}
 
+	return fmt.Errorf("unsupported file extension: %s", fileExt)
+}
+
+func (h *ApplicationHandler) validateApplicationAndVersion(tx *gorm.DB, applicationID string, versionNumber int) (*data.Application, *data.Version, error) {
+	var application data.Application
+	var version data.Version
+
+	if err := tx.First(&application, "id = ?", applicationID).Error; err != nil {
+		return nil, nil, err
+	}
+
+	if err := tx.First(&version, "application_id = ? AND version_number = ?", applicationID, versionNumber).Error; err != nil {
+		return nil, nil, err
+	}
+
+	return &application, &version, nil
+}
+
+func (h *ApplicationHandler) saveAndDecompressFile(file multipart.File, filename string, application *data.Application, applicationID string, versionNumber int) (string, string, error) {
+	basePath := filepath.Join(h.cfg.Storage.PackagesRootPath, application.OwnerID, applicationID, strconv.Itoa(versionNumber))
+	uploadFilePath := filepath.Join(basePath, filename)
+
+	if err := utilities.TouchDirectory(basePath); err != nil {
+		return "", "", err
+	}
+
+	uploadedFile, err := os.Create(uploadFilePath)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		return "", "", err
+	}
+	defer uploadedFile.Close()
+
+	if _, err := io.Copy(uploadedFile, file); err != nil {
+		return "", "", err
+	}
+
+	// Decompress the file
+	if err := h.decompressFile(uploadFilePath, basePath); err != nil {
+		return "", "", err
+	}
+
+	// Remove uploaded archive
+	if err := os.Remove(uploadFilePath); err != nil {
+		return "", "", err
+	}
+
+	return uploadFilePath, basePath, nil
+}
+
+func (h *ApplicationHandler) decompressFile(uploadFilePath, destinationPath string) error {
+	switch filepath.Ext(uploadFilePath) {
+	case ".7z":
+		return utilities.Decompress7z(uploadFilePath, destinationPath)
+	case ".tar":
+		return utilities.DecompressTar(uploadFilePath, destinationPath)
+	case ".gz":
+		return utilities.DecompressGzip(uploadFilePath, destinationPath)
+	case ".zip":
+		return utilities.DecompressZip(uploadFilePath, destinationPath)
+	default:
+		return fmt.Errorf("unsupported file extension")
+	}
+}
+
+func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
+	_, span, requestID, cl := h.setupTraceAndLogger(r, w)
+	defer span.End()
+
+	applicationID := mux.Vars(r)["applicationid"]
+	versionNumber := mux.Vars(r)["versionnumber"]
+
+	_, httpStatus, helperErr, err := h.validateApplication(applicationID)
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestID, r, &w, span)
 		return
 	}
+
+	version, httpStatus, helperErr, err := h.validateVersion(applicationID, versionNumber)
+	if err != nil {
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestID, r, &w, span)
+		return
+	}
+
+	externalCommand := "ls -laR --time-style=long-iso"
+	output, err := h.executeListCommand(externalCommand, version.PackagePath)
+	response := data.AuditRecordWrapper{
+		ApplicationID: version.ApplicationID,
+		VersionID:     version.ID,
+		VersionNumber: version.VersionNumber,
+		Command:       externalCommand,
+		Output:        output,
+	}
+
+	if err != nil {
+		response.Error = err.Error()
+	}
+
+	h.writeResponse(w, cl, response, span)
 }

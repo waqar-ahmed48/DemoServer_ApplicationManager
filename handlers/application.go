@@ -101,7 +101,12 @@ func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	response := h.buildApplicationsResponse(applications, limit, skip)
+	response, err := h.buildApplicationsResponse(applications, limit, skip)
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
+
 	h.writeResponse(w, cl, response, span)
 }
 
@@ -315,7 +320,10 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	newApp.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
 	postWrapper := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
-	utilities.CopyMatchingFields(postWrapper, newApp)
+	if err := utilities.CopyMatchingFields(postWrapper, newApp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
 
 	if err := datalayer.CreateObject(h.pd.RWDB(), &newApp, ctx, h.cfg.Server.PrefixMain); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
@@ -352,7 +360,9 @@ func (h *ApplicationHandler) fetchApplication(applicationID string) (*data.Appli
 }
 
 func (h *ApplicationHandler) updateApplication(application *data.Application, patch data.ApplicationPatchWrapper, ctx context.Context) error {
-	utilities.CopyMatchingFields(patch, application)
+	if err := utilities.CopyMatchingFields(patch, application); err != nil {
+		return err
+	}
 	return datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
 }
 
@@ -370,7 +380,7 @@ func (h *ApplicationHandler) deleteApplication(application *data.Application) er
 	return tx.Commit().Error
 }
 
-func (h *ApplicationHandler) buildApplicationsResponse(applications []data.Application, limit, skip int) data.ApplicationsResponse {
+func (h *ApplicationHandler) buildApplicationsResponse(applications []data.Application, limit, skip int) (*data.ApplicationsResponse, error) {
 	response := data.ApplicationsResponse{
 		Total:        len(applications),
 		Limit:        limit,
@@ -380,10 +390,13 @@ func (h *ApplicationHandler) buildApplicationsResponse(applications []data.Appli
 
 	for _, app := range applications {
 		var wrapped data.ApplicationResponseWrapper
-		utilities.CopyMatchingFields(app, &wrapped)
+
+		if err := utilities.CopyMatchingFields(app, &wrapped); err != nil {
+			return nil, err
+		}
 		response.Applications = append(response.Applications, wrapped)
 	}
-	return response
+	return &response, nil
 }
 
 func (h *ApplicationHandler) writeResponse(w http.ResponseWriter, cl *slog.Logger, data interface{}, span trace.Span) {

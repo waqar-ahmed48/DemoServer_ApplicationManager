@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-playground/validator"
 	"github.com/gorilla/mux"
@@ -47,6 +48,41 @@ func (h ApplicationHandler) validateApplicationID(r *http.Request, cl *slog.Logg
 		return "", false
 	}
 	return applicationID, true
+}
+
+// Generalized middleware for validating ContentTypeHeader
+func (h ApplicationHandler) validateContentTypeHeader(r *http.Request, cl *slog.Logger, rw http.ResponseWriter, requestid string, span trace.Span) bool {
+
+	// Check content type
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		helper.ReturnError(
+			cl,
+			http.StatusUnsupportedMediaType,
+			helper.ErrorPackageInvalidContentType,
+			fmt.Errorf("no internal error"),
+			requestid,
+			r,
+			&rw,
+			span)
+		return false
+	}
+
+	applicationID := mux.Vars(r)["applicationid"]
+	if len(applicationID) == 0 {
+		helper.ReturnError(
+			cl,
+			http.StatusBadRequest,
+			helper.ErrorApplicationIDInvalid,
+			fmt.Errorf("no internal error"),
+			"",
+			r,
+			&rw,
+			span,
+		)
+		return false
+	}
+	return true
 }
 
 // Middleware for decoding and validating JSON payloads

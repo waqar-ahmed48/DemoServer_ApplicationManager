@@ -4,9 +4,6 @@ import (
 	"DemoServer_ApplicationManager/helper"
 	"fmt"
 	"net/http"
-	"strings"
-
-	"github.com/gorilla/mux"
 )
 
 func (h ApplicationHandler) MVPackageUpload(next http.Handler) http.Handler {
@@ -18,48 +15,19 @@ func (h ApplicationHandler) MVPackageUpload(next http.Handler) http.Handler {
 		// Limit the size of the request body
 		r.Body = http.MaxBytesReader(rw, r.Body, int64(h.cfg.Storage.MaxPackageSize))
 
-		// Check content type
-		contentType := r.Header.Get("Content-Type")
-		if !strings.HasPrefix(contentType, "multipart/form-data") {
-			helper.ReturnError(
-				cl,
-				http.StatusUnsupportedMediaType,
-				helper.ErrorPackageInvalidContentType,
-				fmt.Errorf("no internal error"),
-				requestid,
-				r,
-				&rw,
-				span)
+		valid := h.validateContentTypeHeader(r, cl, rw, requestid, span)
+
+		if !valid {
 			return
 		}
 
-		vars := mux.Vars(r)
-		applicationid := vars["applicationid"]
-		versionnumber := vars["versionnumber"]
-
-		if len(applicationid) == 0 {
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorApplicationIDInvalid,
-				fmt.Errorf("no internal error"),
-				requestid,
-				r,
-				&rw,
-				span)
+		_, valid = h.validateApplicationID(r, cl, rw, span)
+		if !valid {
 			return
 		}
 
-		if len(versionnumber) == 0 {
-			helper.ReturnError(
-				cl,
-				http.StatusBadRequest,
-				helper.ErrorVersionNumberInvalid,
-				fmt.Errorf("no internal error"),
-				requestid,
-				r,
-				&rw,
-				span)
+		_, valid = h.validateVersionNumber(r, cl, rw, span)
+		if !valid {
 			return
 		}
 
