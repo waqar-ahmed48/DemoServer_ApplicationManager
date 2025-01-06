@@ -15,19 +15,15 @@ func (h ApplicationHandler) MVPackageUpload(next http.Handler) http.Handler {
 		// Limit the size of the request body
 		r.Body = http.MaxBytesReader(rw, r.Body, int64(h.cfg.Storage.MaxPackageSize))
 
-		valid := h.validateContentTypeHeader(r, cl, rw, requestid, span)
-
-		if !valid {
+		if valid := h.validateContentTypeHeader(r, cl, rw, requestid, span); !valid {
 			return
 		}
 
-		_, valid = h.validateApplicationID(r, cl, rw, span)
-		if !valid {
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
 			return
 		}
 
-		_, valid = h.validateVersionNumber(r, cl, rw, span)
-		if !valid {
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
 			return
 		}
 
