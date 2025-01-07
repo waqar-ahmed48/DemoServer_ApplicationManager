@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -342,7 +341,7 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := datalayer.CreateObject(h.pd.RWDB(), &newApp, ctx, h.cfg.Server.PrefixMain); err != nil {
+	if err := utilities.CreateObject(h.pd.RWDB(), &newApp, ctx, h.cfg.Server.PrefixMain); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
 	}
@@ -380,7 +379,7 @@ func (h *ApplicationHandler) updateApplication(application *data.Application, pa
 	if err := utilities.CopyMatchingFields(patch, application); err != nil {
 		return err
 	}
-	return datalayer.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
+	return utilities.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
 }
 
 func (h *ApplicationHandler) deleteApplication(application *data.Application) error {
@@ -450,60 +449,12 @@ func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.C
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
 	defer span.End()
 
-	var prefixHTTP string
-
-	c := http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
-		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
-	}
-
-	if h.cfg.ConnectionManager.HTTPS {
-		prefixHTTP = "https://"
-	} else {
-		prefixHTTP = "http://"
-	}
-
-	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid + "/creds"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-
+	resp, err := h.vh.GenerateCredsAWSSecretsEngine(h.cfg.Vault.PathPrefix+"/aws_"+connectionid, ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.Do(req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp == nil {
-		err = fmt.Errorf("response object is nil")
-		return nil, err
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
-		return nil, err
-	}
-
-	b, _ := io.ReadAll(resp.Body)
-
-	var rc data.CredsAWSConnectionResponse
-
-	err = json.Unmarshal(b, &rc)
-	if err != nil {
-		return nil, err
-	}
-
-	if rc.Data.AccessKey == "" || rc.Data.SecretKey == "" {
-		err = fmt.Errorf("creds not generated")
-		return nil, err
-	}
-
-	return &rc, nil
+	return resp, nil
 }
 
 func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {

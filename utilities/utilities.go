@@ -1,6 +1,7 @@
 package utilities
 
 import (
+	"DemoServer_ApplicationManager/data"
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
@@ -15,8 +16,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-playground/validator"
+	"github.com/google/uuid"
 	"github.com/mholt/archiver"
 	"go.opentelemetry.io/otel"
 	"gorm.io/gorm"
@@ -59,65 +62,42 @@ func CallMultiThreadedFunc(f MultiThreadedFunc, count int, threads int) {
 	<-done
 }
 
-/*
-func CopyMatchingFields(src, tgt interface{}) error {
-	srcVal := reflect.ValueOf(src)
-	tgtVal := reflect.ValueOf(tgt)
-
-	// Ensure tgt is a pointer and can be dereferenced
-	if tgtVal.Kind() != reflect.Ptr || tgtVal.IsNil() {
-		return errors.New("target object must be a non-nil pointer to a struct")
+// initializeAuditRecord sets up a new audit record for Async command execution
+func InitializeAuditRecordAsync(version *data.Version, command string, action uuid.UUID, requestID string) *data.AuditRecord {
+	return &data.AuditRecord{
+		ID:              uuid.New(),
+		ExecutionID:     uuid.New(),
+		VersionID:       version.ID,
+		ApplicationID:   version.ApplicationID,
+		VersionNumber:   version.VersionNumber,
+		ExecutionStatus: data.InProcess,
+		StartTime:       time.Now(),
+		Command:         command,
+		Action:          action,
+		RequestID:       uuid.MustParse(requestID),
+		Done:            make(chan bool, 1),
 	}
-
-	tgtElem := tgtVal.Elem() // Dereference the pointer
-
-	// Ensure tgtElem is a struct
-	if tgtElem.Kind() != reflect.Struct {
-		return errors.New("target object must be a pointer to a struct")
-	}
-
-	// Ensure src is a struct or a pointer to a struct
-	if srcVal.Kind() == reflect.Ptr {
-		srcVal = srcVal.Elem() // Dereference if it's a pointer
-	}
-
-	if srcVal.Kind() != reflect.Struct {
-		return errors.New("source object must be a struct or a pointer to a struct")
-	}
-
-	// Iterate through the fields of the target struct
-	for i := 0; i < tgtElem.NumField(); i++ {
-		tgtField := tgtElem.Type().Field(i)
-		tgtFieldVal := tgtElem.Field(i)
-		srcField := srcVal.FieldByName(tgtField.Name)
-
-		// Ensure srcField exists and is valid
-		if !srcField.IsValid() || !tgtFieldVal.CanSet() {
-			continue
-		}
-
-		// Handle pointer-to-value or pointer-to-pointer cases
-		if srcField.Kind() == reflect.Ptr {
-			if !srcField.IsNil() {
-				// Dereference pointer from src and set if tgt is non-pointer
-				if tgtFieldVal.Kind() != reflect.Ptr {
-					tgtFieldVal.Set(srcField.Elem())
-				} else {
-					// Both src and tgt are pointers
-					tgtFieldVal.Set(srcField)
-				}
-			}
-		} else {
-			// Both src and tgt are non-pointers
-			if tgtFieldVal.Kind() == srcField.Kind() {
-				tgtFieldVal.Set(srcField)
-			}
-		}
-	}
-
-	return nil
 }
-*/
+
+// initializeAuditRecordSync sets up a new audit record for synchronous command execution
+func InitializeAuditRecordSync(version *data.Version, command string, action uuid.UUID, requestID string, status data.ActionStatusTypeEnum, os string, es string, ec string) *data.AuditRecord {
+	return &data.AuditRecord{
+		ID:              uuid.New(),
+		VersionID:       version.ID,
+		ApplicationID:   version.ApplicationID,
+		VersionNumber:   version.VersionNumber,
+		ExecutionStatus: data.Completed,
+		StartTime:       time.Now(),
+		EndTime:         time.Now(),
+		Command:         command,
+		Action:          action,
+		Output:          os,
+		Error:           es,
+		ErrorCode:       ec,
+		RequestID:       uuid.MustParse(requestID),
+		Status:          status,
+	}
+}
 
 func CopyMatchingFields(src, tgt interface{}) error {
 	srcVal := reflect.ValueOf(src)

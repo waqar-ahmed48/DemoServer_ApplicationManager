@@ -4,10 +4,15 @@ import (
 	"DemoServer_ApplicationManager/configuration"
 	"DemoServer_ApplicationManager/datalayer"
 	"DemoServer_ApplicationManager/helper"
+	"DemoServer_ApplicationManager/utilities"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Response schema for ApplicationManager Status GET
@@ -34,6 +39,19 @@ func NewStatusHandler(l *slog.Logger, pd *datalayer.PostgresDataSource, cfg *con
 	return &StatusHandler{l, pd, cfg}
 }
 
+// Helper function to set up tracing and logging
+func (h StatusHandler) setupTraceAndLogger(r *http.Request, rw http.ResponseWriter) (context.Context, trace.Span, string, *slog.Logger) {
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	traceLogger := h.l.With(
+		slog.String("trace_id", span.SpanContext().TraceID().String()),
+		slog.String("span_id", span.SpanContext().SpanID().String()),
+	)
+	requestID, cl := helper.PrepareContext(r, &rw, traceLogger)
+
+	return ctx, span, requestID, cl
+}
+
 func (eh *StatusHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	// swagger:operation GET /status Status GetStatus
@@ -58,7 +76,7 @@ func (eh *StatusHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	//       "$ref": "#/definitions/ErrorResponse"
 
 	// Start a trace
-	ctx, span, _, cl := h.setupTraceAndLogger(r, w)
+	ctx, span, _, cl := eh.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	var response StatusResponse

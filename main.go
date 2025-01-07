@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"DemoServer_ApplicationManager/handlers"
 	"DemoServer_ApplicationManager/otel"
 	"DemoServer_ApplicationManager/secretsmanager"
+	"DemoServer_ApplicationManager/workers"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/gorilla/mux"
@@ -81,6 +83,11 @@ func main() {
 
 	l := sl.With(logAttrGroup)
 	slog.SetDefault(l)
+
+	var wg sync.WaitGroup
+	mainctx := &workers.MainContext{
+		Terminate: false,
+	}
 
 	r := mux.NewRouter()
 
@@ -366,6 +373,8 @@ func main() {
 	docsRouter.Handle("/docs", docs_sh)
 	docsRouter.Handle("/swagger.yaml", http.FileServer(http.Dir("./")))
 
+	worker := workers.NewWorker(&cfg, l, pd, ah, &wg, mainctx)
+
 	s := http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Server.Port),
 		Handler:      r,
@@ -373,6 +382,8 @@ func main() {
 		WriteTimeout: time.Duration(cfg.Server.HTTPWriteTimeout) * time.Second,
 		ReadTimeout:  time.Duration(cfg.Server.HTTPReadTimeout) * time.Second,
 	}
+
+	go worker.Work()
 
 	go func() {
 		l.Info("Started listening", slog.Int("port", cfg.Server.Port))
@@ -391,9 +402,15 @@ func main() {
 	sig := <-sigChan
 	l.Info("Terminal request received. Initiating Graceful shutdown", "signal", sig.String())
 
+	mainctx.Terminate = true
+
 	tc, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.HTTPShutdownTimeout)*time.Second)
 	defer cancel()
 	l.Info("New requests processing stopped.")
+
+	l.Info("Waiting for Workers to terminate gracefully.")
+	wg.Wait()
+	l.Info("Workers terminated graceuflly.")
 
 	err = s.Shutdown(tc)
 	if err != nil {

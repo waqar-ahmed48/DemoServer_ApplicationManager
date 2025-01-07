@@ -9,7 +9,7 @@ import (
 func (h ApplicationHandler) MVGraphTofu(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, w)
+		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
@@ -22,7 +22,7 @@ func (h ApplicationHandler) MVGraphTofu(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVTofuVersion(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, w)
+		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)

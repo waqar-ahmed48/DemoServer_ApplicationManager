@@ -92,14 +92,14 @@ func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber i
 	}()
 
 	// Validate application and version
-	application, version, err := h.validateApplicationAndVersion(tx, applicationID, versionNumber)
+	application, version, err := h.validateApplicationAndVersion(tx, applicationid, versionNumber)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 
 	// Save and decompress file
-	uploadFilePath, packageFilePath, err := h.saveAndDecompressFile(file, handler.Filename, application, applicationID, versionNumber)
+	_, packageFilePath, err := h.saveAndDecompressFile(file, handler.Filename, application, applicationid, versionNumber)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -120,7 +120,7 @@ func (h *ApplicationHandler) uploadPackage(applicationid string, versionNumber i
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return &version, nil
+	return version, nil
 }
 
 func (h *ApplicationHandler) executeListCommand(path string, externalCommand string) (string, error) {

@@ -7,10 +7,10 @@ import (
 
 func (h *ApplicationHandler) TofuVersion(w http.ResponseWriter, r *http.Request) {
 	command := "tofu version"
-	h.VersionExecIacCommand(w, r, command, data.VersionTofu)
+	h.VersionExecIacCommandAsync(w, r, command, data.GetTofuVersion)
 }
 
 func (h *ApplicationHandler) GraphTofu(w http.ResponseWriter, r *http.Request) {
 	command := "terragrunt validate"
-	h.VersionExecIacCommand(w, r, command, data.GraphTofu)
+	h.VersionExecIacCommandAsync(w, r, command, data.GraphTofu)
 }

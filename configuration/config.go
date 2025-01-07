@@ -78,6 +78,10 @@ type Config struct {
 		NamePrefix string `yaml:"name_prefix" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_NAME_PREFIX"`
 		MaxResults int    `yaml:"max_results" env:"DEMOSERVER_APPLICATIONMANAGER_DATALAYER_MAX_RESULTS"`
 	} `yaml:"datalayer"`
+
+	AWS struct {
+		IAMUserLatency int `yaml:"iam_user_latency" env:"DEMOSERVER_APPLICATIONMANAGER_AWS_IAMUSER_LATENCY"`
+	} `yaml:"aws"`
 }
 
 // Args is the struct for pass .

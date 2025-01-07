@@ -26,6 +26,7 @@ var (
 	MoveStateResource   = uuid.MustParse("2849966e-41b1-4800-ad69-73472b185bb0")
 	RemoveStateResource = uuid.MustParse("f846760b-10bf-4420-a7f8-b76af790e2a3")
 	ImportStateResource = uuid.MustParse("16a7f4f0-ab61-4b4c-a5c8-61aedd6a3ae9")
+	CreateWorkspace     = uuid.MustParse("326a17fa-fbe9-4b51-8686-62a7918ff824")
 	ListWorkspace       = uuid.MustParse("351e7094-7bc9-4c49-a50a-9453156656ef")
 	SelectWorkspace     = uuid.MustParse("da6d54e5-c37f-43f1-b84e-2144b86a83b2")
 	ShowWorkspace       = uuid.MustParse("5a5e8bc6-fd67-4d4b-83eb-05ff38b17216")
@@ -50,6 +51,7 @@ var (
 	Test                = uuid.MustParse("7b64965a-7b52-4545-8c60-9104b30c512b")
 	Render              = uuid.MustParse("d59b18b2-72df-433d-a255-08d88a25b5a7")
 	RunAll              = uuid.MustParse("ad717ae9-26c6-49f5-b246-c3d8b6ac3eb4")
+	ValidateInputs      = uuid.MustParse("63da81a6-0e3c-40d6-933f-3f936749a2a6")
 )
 
 func (o ActionTypeEnum) String() string {

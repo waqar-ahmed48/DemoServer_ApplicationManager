@@ -177,47 +177,90 @@ func (h *ApplicationHandler) getCommandOutput(applicationid string, versionNumbe
 	return &a, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *http.Request, command string, action uuid.UUID) {
-	ctx, span, requestID, cl := h.setupTraceAndLogger(r, w)
+func (h *ApplicationHandler) VersionExecIacCommandSync(applicationid string, versionNumber string, command string, action uuid.UUID, ctx context.Context) error {
+
+	_, version, creds, err := h.prepareExecution(ctx, applicationid, versionNumber)
+	if err != nil {
+		return err
+	}
+
+	dockerCommand := h.buildDockerCommand(version.PackagePath, creds, command, action)
+
+	if action == data.Apply {
+		version.DemoStatus = data.Demo_Starting
+	} else if action == data.Destroy {
+		version.DemoStatus = data.Demo_Stopping
+	}
+
+	stdout, stderr, err := h.ExecuteCommandSync(version, dockerCommand, action, creds.Latency, ctx)
+	var errorCode string
+	var status data.ActionStatusTypeEnum
+	if err != nil {
+		errorCode = err.Error()
+		status = data.Failed
+	} else {
+		status = data.Successful
+	}
+
+	result := utilities.InitializeAuditRecordSync(version, command, action, "", status, stdout, stderr, errorCode)
+
+	if err := utilities.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *ApplicationHandler) VersionExecIacCommandAsync(w http.ResponseWriter, r *http.Request, command string, action uuid.UUID) error {
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	applicationID := mux.Vars(r)["applicationid"]
 	versionNumber := mux.Vars(r)["versionnumber"]
 
-	application, version, creds, err := h.prepareExecution(ctx, cl, applicationID, versionNumber, requestID)
+	_, version, creds, err := h.prepareExecution(ctx, applicationID, versionNumber)
 	if err != nil {
-		handleExecutionError(w, r, cl, err, span, requestID)
-		return
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return err
 	}
 
 	dockerCommand := h.buildDockerCommand(version.PackagePath, creds, command, action)
-	result := h.initializeAuditRecord(version, command, action, requestID)
 
-	if err := utilities.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
-		handleExecutionError(w, r, cl, fmt.Errorf("failed to create audit record: %w", err), span, requestID)
-		return
+	if action == data.Apply {
+		version.DemoStatus = data.Demo_Starting
+	} else if action == data.Destroy {
+		version.DemoStatus = data.Demo_Stopping
 	}
 
-	go h.executeCommandAsync(dockerCommand, result, creds.Latency, ctx, cl, w, r, span, requestID)
+	result := utilities.InitializeAuditRecordAsync(version, command, action, requestid)
+
+	if err := utilities.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorFailedToCreateAuditRecord, err, requestid, r, &w, span)
+		return err
+	}
+
+	go h.executeCommandAsync(version, dockerCommand, action, result, creds.Latency, ctx, cl, w, r, span, requestid)
 
 	h.respondWithAuditRecord(w, cl, result, span)
+
+	return nil
 }
 
 // prepareExecution validates and retrieves application, version, and AWS credentials.
-func (h *ApplicationHandler) prepareExecution(ctx context.Context, cl helper.Logger, applicationID, versionNumber, requestID string) (*data.Application, *data.Version, *data.CredsAWSConnectionResponse, error) {
-	application, httpStatus, helperErr, err := h.validateApplication(applicationID)
+func (h *ApplicationHandler) prepareExecution(ctx context.Context, applicationID string, versionNumber string) (*data.Application, *data.Version, *data.CredsAWSConnectionResponse, error) {
+	application, _, _, err := h.validateApplication(applicationID)
 	if err != nil {
-		return nil, nil, nil, wrapError(httpStatus, helperErr, err)
+		return nil, nil, nil, err
 	}
 
-	version, httpStatus, helperErr, err := h.validateVersion(applicationID, versionNumber)
+	version, _, _, err := h.validateVersion(applicationID, versionNumber)
 	if err != nil {
-		return nil, nil, nil, wrapError(httpStatus, helperErr, err)
+		return nil, nil, nil, err
 	}
 
 	creds, err := h.generateAWSCreds(application.ConnectionID, ctx)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to generate AWS credentials: %w", err)
+		return nil, nil, nil, err
 	}
 
 	return application, version, creds, nil
@@ -233,25 +276,8 @@ func (h *ApplicationHandler) buildDockerCommand(packagePath string, creds *data.
 		packagePath, command)
 }
 
-// initializeAuditRecord sets up a new audit record.
-func (h *ApplicationHandler) initializeAuditRecord(version *data.Version, command string, action uuid.UUID, requestID string) *data.AuditRecord {
-	return &data.AuditRecord{
-		ID:              uuid.New(),
-		ExecutionID:     uuid.New(),
-		VersionID:       version.ID,
-		ApplicationID:   version.ApplicationID,
-		VersionNumber:   version.VersionNumber,
-		ExecutionStatus: data.InProcess,
-		StartTime:       time.Now(),
-		Command:         command,
-		Action:          action,
-		RequestID:       uuid.MustParse(requestID),
-		Done:            make(chan bool, 1),
-	}
-}
-
 // executeCommandAsync runs the Docker command asynchronously and updates the audit record.
-func (h *ApplicationHandler) executeCommandAsync(command string, result *data.AuditRecord, latency int, ctx context.Context, cl *slog.Logger, w http.ResponseWriter, r *http.Request, span trace.Span, requestID string) {
+func (h *ApplicationHandler) executeCommandAsync(v *data.Version, command string, action uuid.UUID, result *data.AuditRecord, latency int, ctx context.Context, cl *slog.Logger, w http.ResponseWriter, r *http.Request, span trace.Span, requestID string) {
 	defer close(result.Done)
 
 	if latency > 0 {
@@ -269,15 +295,54 @@ func (h *ApplicationHandler) executeCommandAsync(command string, result *data.Au
 	if err != nil {
 		result.ErrorCode = err.Error()
 		result.Status = data.Failed
+
+		if action == data.Apply {
+			v.DemoStatus = data.Demo_FailedToStart
+			v.DemoStartTime = time.Time{}
+		} else if action == data.Destroy {
+			v.DemoStatus = data.Demo_FailedToStop
+		}
+
 	} else {
 		result.Status = data.Successful
+
+		if action == data.Apply {
+			v.DemoStatus = data.Demo_Running
+			v.DemoStartTime = time.Now()
+			v.DemoActualEndTime = time.Time{}
+		} else if action == data.Destroy {
+			v.DemoStatus = data.Demo_Stopped
+			v.DemoActualEndTime = time.Now()
+		}
 	}
+
 	result.ExecutionStatus = data.Completed
 	result.EndTime = time.Now()
 
 	if err := utilities.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
 		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
 	}
+}
+
+// executeCommandAsync runs the Docker command synchronously and updates the audit record.
+func (h *ApplicationHandler) ExecuteCommandSync(v *data.Version, command string, action uuid.UUID, latency int, ctx context.Context) (string, string, error) {
+	var stdout string
+	var stderr string
+
+	if latency > 0 {
+		time.Sleep(time.Duration(latency) * time.Second)
+	}
+
+	cmd := exec.Command("bash", "-c", command)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	commandErr := cmd.Run()
+	stdout = utilities.StripEscapeSequences(stdoutBuf.String())
+	stderr = utilities.StripEscapeSequences(stderrBuf.String())
+
+	return stdout, stderr, commandErr
 }
 
 // respondWithAuditRecord sends the audit record as a JSON response.
@@ -291,26 +356,6 @@ func (h *ApplicationHandler) respondWithAuditRecord(w http.ResponseWriter, cl *s
 	if err := json.NewEncoder(w).Encode(&resp); err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
-}
-
-// handleExecutionError centralizes error handling for the function.
-func handleExecutionError(w http.ResponseWriter, r *http.Request, cl *slog.Logger, err error, span trace.Span, requestID string) {
-	if wrappedErr, ok := err.(wrappedError); ok {
-		helper.ReturnError(cl, wrappedErr.httpStatus, wrappedErr.helperErr, wrappedErr.err, requestID, r, &w, span)
-	} else {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorInternalServer, err, requestID, r, &w, span)
-	}
-}
-
-// wrapError creates a wrapped error with HTTP status and helper error type.
-type wrappedError struct {
-	httpStatus int
-	helperErr  helper.ErrorTypeEnum
-	err        error
-}
-
-func wrapError(httpStatus int, helperErr helper.ErrorTypeEnum, err error) error {
-	return wrappedError{httpStatus: httpStatus, helperErr: helperErr, err: err}
 }
 
 func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request, ctx context.Context) {

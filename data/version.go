@@ -30,6 +30,14 @@ type Version struct {
 	PackageUploadedAt time.Time `json:"package_uploaded_at"`
 	PackagePath       string    `json:"package_path"`
 
+	DemoStatus          VersionDemoStatusTypeEnum `json:"demo_status" gorm:"-"`
+	DemoStartTime       time.Time                 `json:"demo_start_time"`
+	DemoActualEndTime   time.Time                 `json:"demo_actual_end_time"`
+	DemoExpectedEndTime time.Time                 `json:"demo_expected_end_time"`
+	DemoDuration        int                       `json:"demo_duration"`
+
+	LockOwner string `json:"lock_owner" gorm:"index"`
+
 	UsageCounter  int       `json:"usage_counter"`
 	LatestApply   time.Time `json:"latest_apply"`
 	LatestDestroy time.Time `json:"latest_destroy"`
@@ -56,7 +64,14 @@ type VersionResponseWrapper struct {
 
 	State VersionStateTypeEnum `json:"state" gorm:"index;not null"`
 
-	PackageUploaded bool `json:"package_uploaded"`
+	PackageUploaded   bool      `json:"package_uploaded"`
+	PackageUploadedAt time.Time `json:"package_uploaded_at"`
+
+	DemoStatus          VersionDemoStatusTypeEnum `json:"demo_status" gorm:"-"`
+	DemoStartTime       time.Time                 `json:"demo_start_time"`
+	DemoExpectedEndTime time.Time                 `json:"demo_expected_end_time"`
+	DemoActualEndTime   time.Time                 `json:"demo_actual_end_time"`
+	DemoDuration        int                       `json:"demo_duration"`
 
 	UsageCounter  int       `json:"usage_counter"`
 	LatestApply   time.Time `json:"latest_apply"`
