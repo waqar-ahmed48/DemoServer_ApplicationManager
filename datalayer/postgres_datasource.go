@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	_ "github.com/lib/pq"
 )
@@ -65,7 +66,9 @@ func NewPostgresDataSource(c *configuration.Config, l *slog.Logger) (*PostgresDa
 
 	rwDsn = fmt.Sprintf("host=%s user=%s password=%s port=%d sslmode=%s dbname=%s", c.Postgres.Host, c.Postgres.RWUsername, c.Postgres.RWPassword, c.Postgres.Port, sslmode, strings.ToLower(c.DataLayer.NamePrefix))
 
-	rwdb, err := gorm.Open(postgres.Open(rwDsn), &gorm.Config{})
+	rwdb, err := gorm.Open(postgres.Open(rwDsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent), // Disable all logs
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +87,9 @@ func NewPostgresDataSource(c *configuration.Config, l *slog.Logger) (*PostgresDa
 		return nil, err
 	}
 
-	rodb, err := gorm.Open(postgres.Open(roDsn), &gorm.Config{})
+	rodb, err := gorm.Open(postgres.Open(roDsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent), // Disable all logs
+	})
 	if err != nil {
 		return nil, err
 	}

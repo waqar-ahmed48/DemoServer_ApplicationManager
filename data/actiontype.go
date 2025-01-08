@@ -52,6 +52,7 @@ var (
 	Render              = uuid.MustParse("d59b18b2-72df-433d-a255-08d88a25b5a7")
 	RunAll              = uuid.MustParse("ad717ae9-26c6-49f5-b246-c3d8b6ac3eb4")
 	ValidateInputs      = uuid.MustParse("63da81a6-0e3c-40d6-933f-3f936749a2a6")
+	LSPackage           = uuid.MustParse("0c85ea42-7bcf-49cd-8f47-9732180c5f26")
 )
 
 func (o ActionTypeEnum) String() string {

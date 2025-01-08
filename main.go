@@ -373,8 +373,6 @@ func main() {
 	docsRouter.Handle("/docs", docs_sh)
 	docsRouter.Handle("/swagger.yaml", http.FileServer(http.Dir("./")))
 
-	worker := workers.NewWorker(&cfg, l, pd, ah, &wg, mainctx)
-
 	s := http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.Server.Port),
 		Handler:      r,
@@ -383,7 +381,8 @@ func main() {
 		ReadTimeout:  time.Duration(cfg.Server.HTTPReadTimeout) * time.Second,
 	}
 
-	go worker.Work()
+	//worker := workers.NewWorker(&cfg, l, pd, ah, &wg, mainctx)
+	//go worker.Work()
 
 	go func() {
 		l.Info("Started listening", slog.Int("port", cfg.Server.Port))

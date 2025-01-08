@@ -55,9 +55,9 @@ func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) 
 	h.writeResponse(w, cl, oRespConn, span)
 }
 
-func (h *ApplicationHandler) fetchVersions(limit, skip int) ([]data.Version, error) {
+func (h *ApplicationHandler) fetchVersions(applicationid string, limit int, skip int) ([]data.Version, error) {
 	var versions []data.Version
-	result := h.pd.RODB().Limit(limit).Offset(skip).Order("name").Find(&versions)
+	result := h.pd.RODB().Where("application_id = ?", applicationid).Limit(limit).Offset(skip).Order("version_number").Find(&versions)
 	return versions, result.Error
 }
 
@@ -87,8 +87,9 @@ func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request)
 	vars := r.URL.Query()
 	limit := h.parseQueryParam(vars, "limit", h.list_limit, h.cfg.DataLayer.MaxResults)
 	skip := h.parseQueryParam(vars, "skip", 0, math.MaxInt32)
+	applicationid, _ := h.validateApplicationID(r, cl, w, span)
 
-	versions, err := h.fetchVersions(limit, skip)
+	versions, err := h.fetchVersions(applicationid, limit, skip)
 	if err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
 		return
@@ -121,7 +122,9 @@ func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Reque
 func (h *ApplicationHandler) validateVersion(applicationid string, versionNumber string) (*data.Version, int, helper.ErrorTypeEnum, error) {
 	version, httpStatus, helperError, err := h.getVersion(applicationid, versionNumber)
 
-	if err == nil {
+	if err != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorApplicationIDInvalid, err
+	} else {
 		if !version.PackageUploaded {
 			return nil, http.StatusBadRequest, helper.ErrorPackageNotUploaded, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorPackageNotUploaded].Error())
 		} else {
@@ -136,9 +139,8 @@ func (h *ApplicationHandler) validateVersion(applicationid string, versionNumber
 			}
 
 		}
+		return version, httpStatus, helperError, nil
 	}
-
-	return version, httpStatus, helperError, nil
 }
 
 func (h *ApplicationHandler) getVersion(applicationid string, versionNumber string) (*data.Version, int, helper.ErrorTypeEnum, error) {

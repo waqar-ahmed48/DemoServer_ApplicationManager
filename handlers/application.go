@@ -160,7 +160,13 @@ func (h *ApplicationHandler) GetApplication(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.writeResponse(w, cl, application, span)
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(application, &resp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
+
+	h.writeResponse(w, cl, resp, span)
 }
 
 func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +212,7 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	patch := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
+	patch := r.Context().Value(KeyApplicationPatchParamsRecord{}).(*data.ApplicationPatchWrapper)
 	applicationID := mux.Vars(r)["applicationid"]
 
 	application, err := h.fetchApplication(applicationID)
@@ -215,20 +221,18 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-	}
-
-	if err := h.updateApplication(application, patch, ctx); err != nil {
+	if err := h.updateApplication(application, *patch, ctx); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	h.writeResponse(w, cl, application, span)
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(application, &resp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
+
+	h.writeResponse(w, cl, &resp, span)
 }
 
 // DeleteApplication deletes the Application from datastore
@@ -268,7 +272,7 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	applicationID := mux.Vars(r)["applicationid"]
@@ -283,7 +287,7 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := h.deleteApplication(application); err != nil {
+	if err := h.deleteApplication(application, ctx); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
 		return
 	}
@@ -346,7 +350,13 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.writeResponse(w, cl, newApp, span)
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(newApp, &resp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
+
+	h.writeResponse(w, cl, &resp, span)
 }
 
 func (h *ApplicationHandler) parseQueryParam(vars url.Values, key string, defaultValue, maxValue int) int {
@@ -368,27 +378,74 @@ func (h *ApplicationHandler) fetchApplications(limit, skip int) ([]data.Applicat
 
 func (h *ApplicationHandler) fetchApplication(applicationID string) (*data.Application, error) {
 	var application data.Application
+	var err error
 	result := h.pd.RODB().First(&application, "id = ?", applicationID)
 	if result.RowsAffected == 0 {
 		return nil, fmt.Errorf("application not found")
 	}
+
+	if application.Versions, err = h.fetchVersions(applicationID, h.list_limit, 0); err != nil {
+		return nil, err
+	}
+
 	return &application, result.Error
 }
 
 func (h *ApplicationHandler) updateApplication(application *data.Application, patch data.ApplicationPatchWrapper, ctx context.Context) error {
-	if err := utilities.CopyMatchingFields(patch, application); err != nil {
-		return err
-	}
-	return utilities.UpdateObject(h.pd.RWDB(), application, ctx, h.cfg.Server.PrefixMain)
-}
-
-func (h *ApplicationHandler) deleteApplication(application *data.Application) error {
 	tx := h.pd.RWDB().Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
 
-	if err := tx.Exec("DELETE FROM applications WHERE id = ?", application.ID).Error; err != nil {
+	//ConnectionID is being patched. Have to link/unlink with ConnectionManager Microservice as well.
+	if patch.ConnectionID != nil {
+		if *patch.ConnectionID != "" {
+			if application.ConnectionID != "" {
+				if err := h.unlinkAppFromConnection(application, ctx); err != nil {
+					tx.Rollback()
+					return err
+				}
+			}
+
+			if err := h.linkAppToConnection(application.ID.String(), *patch.ConnectionID, ctx); err != nil {
+				tx.Rollback()
+				return err
+			}
+		} else {
+			tx.Rollback()
+			return helper.ErrorDictionary[helper.ErrorApplicationIDInvalid].Error()
+		}
+	}
+
+	if err := utilities.CopyMatchingFields(patch, application); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if err := utilities.UpdateObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain); err != nil {
+		tx.Rollback()
+	}
+
+	tx.Commit()
+
+	return nil
+}
+
+func (h *ApplicationHandler) deleteApplication(application *data.Application, ctx context.Context) error {
+	tx := h.pd.RWDB().Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	for _, version := range application.Versions {
+		err := utilities.DeleteObjectWithoutTx(tx, &version, ctx, h.cfg.Server.PrefixMain)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := utilities.DeleteObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain); err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to delete application: %w", err)
 	}
@@ -431,7 +488,9 @@ func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) 
 func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
 	application, httpStatus, helperError, err := h.getApplication(applicationid)
 
-	if err == nil {
+	if err != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorApplicationIDInvalid, err
+	} else {
 		if application.ConnectionID == "" {
 			return nil, http.StatusBadRequest, helper.ErrorConnectionMissing, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorConnectionMissing].Error())
 		}
@@ -439,9 +498,8 @@ func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Ap
 		if application.State != data.ApplicationState_Activated {
 			return nil, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error())
 		}
+		return application, httpStatus, helperError, nil
 	}
-
-	return application, httpStatus, helperError, nil
 }
 
 func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.Context) (*data.CredsAWSConnectionResponse, error) {

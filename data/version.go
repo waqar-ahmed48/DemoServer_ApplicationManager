@@ -30,7 +30,7 @@ type Version struct {
 	PackageUploadedAt time.Time `json:"package_uploaded_at"`
 	PackagePath       string    `json:"package_path"`
 
-	DemoStatus          VersionDemoStatusTypeEnum `json:"demo_status" gorm:"-"`
+	DemoStatus          VersionDemoStatusTypeEnum `json:"demo_status" gorm:"demo_status"`
 	DemoStartTime       time.Time                 `json:"demo_start_time"`
 	DemoActualEndTime   time.Time                 `json:"demo_actual_end_time"`
 	DemoExpectedEndTime time.Time                 `json:"demo_expected_end_time"`

@@ -160,8 +160,8 @@ func (h *ApplicationHandler) validateApplicationAndVersion(tx *gorm.DB, applicat
 }
 
 func (h *ApplicationHandler) saveAndDecompressFile(file multipart.File, filename string, application *data.Application, applicationID string, versionNumber int) (string, string, error) {
-	basePath := filepath.Join(h.cfg.Storage.PackagesRootPath, application.OwnerID, applicationID, strconv.Itoa(versionNumber))
-	uploadFilePath := filepath.Join(basePath, filename)
+	basePath := h.cfg.Storage.PackagesRootPath + "/" + application.OwnerID + "/" + applicationID + "/" + strconv.Itoa(versionNumber)
+	uploadFilePath := basePath + "/" + filename
 
 	if err := utilities.TouchDirectory(basePath); err != nil {
 		return "", "", err
@@ -206,7 +206,7 @@ func (h *ApplicationHandler) decompressFile(uploadFilePath, destinationPath stri
 }
 
 func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
-	_, span, requestID, cl := h.setupTraceAndLogger(r, w)
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	applicationID := mux.Vars(r)["applicationid"]
@@ -214,29 +214,29 @@ func (h *ApplicationHandler) LSPackage(w http.ResponseWriter, r *http.Request) {
 
 	_, httpStatus, helperErr, err := h.validateApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestID, r, &w, span)
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
 
 	version, httpStatus, helperErr, err := h.validateVersion(applicationID, versionNumber)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestID, r, &w, span)
+		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
 		return
 	}
 
 	externalCommand := "ls -laR --time-style=long-iso"
-	output, err := h.executeListCommand(externalCommand, version.PackagePath)
-	response := data.AuditRecordWrapper{
-		ApplicationID: version.ApplicationID,
-		VersionID:     version.ID,
-		VersionNumber: version.VersionNumber,
-		Command:       externalCommand,
-		Output:        output,
-	}
-
+	output, err := h.executeListCommand(version.PackagePath, externalCommand)
+	var status data.ActionStatusTypeEnum
+	var es string
 	if err != nil {
-		response.Error = err.Error()
+		status = data.Failed
+		es = err.Error()
+	} else {
+		status = data.Successful
+		es = ""
 	}
 
-	h.writeResponse(w, cl, response, span)
+	audit := utilities.InitializeAuditRecordSync(version, externalCommand, data.LSPackage, requestid, status, output, "", es)
+
+	h.writeResponse(w, cl, &audit, span)
 }

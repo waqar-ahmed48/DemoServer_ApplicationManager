@@ -141,8 +141,62 @@ func CopyMatchingFields(src, tgt interface{}) error {
 		// Skip if the field is a struct or pointer to a struct
 		if srcFieldType.Kind() == reflect.Struct ||
 			(srcFieldType.Kind() == reflect.Ptr && srcFieldType.Elem().Kind() == reflect.Struct) {
-			fmt.Printf("Skipping field %s: is a struct or pointer to a struct\n", srcFieldName)
-			continue
+			// Updated CopyMatchingFields logic
+			if srcField.Type().Kind() == reflect.Ptr && !srcField.IsNil() {
+				// Source field is a non-nil pointer
+				if tgtFieldVal.Kind() == reflect.Ptr {
+					// Both source and destination fields are pointers
+					if tgtFieldVal.Type() == srcField.Type() {
+						// Types match, copy directly
+						tgtFieldVal.Set(srcField)
+					} else if tgtFieldVal.Type().Elem() == srcField.Type().Elem() {
+						// Underlying types match, create a new value and copy
+						newVal := reflect.New(tgtFieldVal.Type().Elem())
+						newVal.Elem().Set(srcField.Elem())
+						tgtFieldVal.Set(newVal)
+					} else {
+						// Log type mismatch
+						fmt.Printf("Skipping field %s: incompatible pointer types (source: %s, target: %s)\n",
+							srcFieldName, srcField.Type(), tgtFieldVal.Type())
+					}
+				} else {
+					// Destination is not a pointer, check for direct assignment compatibility
+					if tgtFieldVal.Type() == srcField.Type().Elem() {
+						tgtFieldVal.Set(srcField.Elem())
+					} else {
+						// Log type mismatch
+						fmt.Printf("Skipping field %s: incompatible types (source: %s, target: %s)\n",
+							srcFieldName, srcField.Type().Elem(), tgtFieldVal.Type())
+						continue
+					}
+				}
+			} else {
+				// Source is not a pointer, handle direct assignment
+				if tgtFieldVal.Kind() == reflect.Ptr {
+					// Destination is a pointer, create a new value
+					if tgtFieldVal.Type().Elem() == srcField.Type() {
+						newVal := reflect.New(tgtFieldVal.Type().Elem())
+						newVal.Elem().Set(srcField)
+						tgtFieldVal.Set(newVal)
+					} else {
+						// Log type mismatch
+						fmt.Printf("Skipping field %s: incompatible types (source: %s, target: %s)\n",
+							srcFieldName, srcField.Type(), tgtFieldVal.Type())
+						continue
+					}
+				} else {
+					// Direct assignment
+					if tgtFieldVal.Type() == srcField.Type() {
+						tgtFieldVal.Set(srcField)
+					} else {
+						// Log type mismatch
+						fmt.Printf("Skipping field %s: incompatible types (source: %s, target: %s)\n",
+							srcFieldName, srcField.Type(), tgtFieldVal.Type())
+						continue
+					}
+				}
+			}
+
 		}
 
 		// Handle pointer-to-value or pointer-to-pointer cases
@@ -375,6 +429,54 @@ func UpdateObjectWithoutTx[T any](db *gorm.DB, obj *T, ctx context.Context, trac
 	return nil
 }
 
+func DeleteObject[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	// Begin a transaction
+	tx := db.Begin()
+
+	// Check if the transaction started successfully
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	result := tx.Delete(obj)
+
+	if result.Error != nil {
+		tx.Rollback()
+		return result.Error
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func DeleteObjectWithoutTx[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	result := db.Delete(obj)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("unexpected affected row count. Expected: 1, Actual: %d", result.RowsAffected)
+	}
+
+	return nil
+}
+
 func CreateObject[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
 
 	tr := otel.Tracer(tracerName)
@@ -399,6 +501,21 @@ func CreateObject[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName st
 	// Commit the transaction
 	if err := tx.Commit().Error; err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func CreateObjectWithoutTx[T any](db *gorm.DB, obj *T, ctx context.Context, tracerName string) error {
+
+	tr := otel.Tracer(tracerName)
+	_, span := tr.Start(ctx, GetFunctionName())
+	defer span.End()
+
+	result := db.Create(obj)
+
+	if result.Error != nil {
+		return result.Error
 	}
 
 	return nil
