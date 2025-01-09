@@ -36,8 +36,8 @@ var (
 	//ErrOperationFailed operation failed
 	ErrOperationFailed = errors.New("operation failed")
 
-	//ErrApplicationNotInitialized Application not initialized
-	ErrApplicationNotInitialized = errors.New("application not initialized")
+	//ErrAWSConnectionNotInitialized AWSConnection not initialized
+	ErrAWSConnectionNotInitialized = errors.New("AWSConnection not initialized")
 
 	//ErrVaultUnsealedButInStandby vault Instance is in standby mode
 	ErrVaultUnsealedButInStandby = errors.New("vault Instance is in standby mode, it wont serve requests")
@@ -59,6 +59,18 @@ var (
 
 	//ErrVaultFailToConfigureAWSSecretsEngine failed to enable Vault's AWS secrets engine
 	ErrVaultFailToConfigureAWSSecretsEngine = errors.New("failed to configure Vault's AWS secrets engine")
+
+	//ErrAWSConnectionTestFailed AWS Connection Test Failed
+	ErrAWSConnectionTestFailed = errors.New("AWS Connection Test Failed")
+
+	//ErrVaultFailToDisableAWSSecretsEngine failed to enable Vault's AWS secrets engine
+	ErrVaultFailToDisableAWSSecretsEngine = errors.New("failed to disable Vault's AWS secrets engine")
+
+	//ErrVaultFailToConfigureAWSSecretsEngine failed to enable Vault's AWS secrets engine
+	ErrVaultFailToGenerateAWSCredentials = errors.New("failed to generate credentials")
+
+	//ErrVaultFailToRetrieveAWSEngineRoleName failed to retrieve role name from Vault's AWS secrets engine
+	ErrVaultFailToRetrieveAWSEngineRoleName = errors.New("failed to retrieve role name from AWS Secrets Engine")
 )
 
 const (
@@ -214,6 +226,12 @@ const (
 
 	//ErrorApplicationFailedToLinkConnection represent failure of operation to link application with connection
 	ErrorApplicationFailedToLinkConnection
+
+	//ErrorExecutionPrepFailed represent failure to prepare for execution of command
+	ErrorExecutionPrepFailed
+
+	//ErrorFailedToCreateAuditRecord represent failuure to create audit record
+	ErrorFailedToCreateAuditRecord
 )
 
 // Error represent the details of error occurred.
@@ -277,6 +295,8 @@ var ErrorDictionary = map[ErrorTypeEnum]Error{
 	ErrorApplicationUnexpectedState:                     {"ApplicationManager_Err_000046", "operation not allowed while application is in this state.", ""},
 	ErrorApplicationFailedToUnlinkFromConnection:        {"ApplicationManager_Err_000047", "unlink operation of application from connection failed", ""},
 	ErrorApplicationFailedToLinkConnection:              {"ApplicationManager_Err_000048", "link operation of application to connection failed", ""},
+	ErrorExecutionPrepFailed:                            {"ApplicationManager_Err_000049", "execution prep failed", ""},
+	ErrorFailedToCreateAuditRecord:                      {"ApplicationManager_Err_000050", "failed to created audit record", ""},
 }
 
 // ErrorResponse represents information returned by Microservice endpoints in case that was an error

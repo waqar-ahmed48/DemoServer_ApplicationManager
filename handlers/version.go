@@ -9,91 +9,34 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (h *ApplicationHandler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) AddVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.LogError(cl, helper.ErrorNotImplemented, err, span)
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
 
 	version, httpStatus, helperErr, err := h.getVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
 
@@ -103,156 +46,84 @@ func (h *ApplicationHandler) GetVersion(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var oRespConn data.VersionResponseWrapper
-	_ = utilities.CopyMatchingFields(version, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-	defer span.End()
-
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	vs := mux.Vars(r)
-	applicationid := vs["applicationid"]
-
-	vars := r.URL.Query()
-
-	limit, skip := h.list_limit, 0
-
-	limit_str := vars.Get("limit")
-	if limit_str != "" {
-		limit, _ = strconv.Atoi(limit_str)
-	}
-
-	skip_str := vars.Get("skip")
-	if skip_str != "" {
-		skip, _ = strconv.Atoi(skip_str)
-	}
-
-	if limit == -1 || limit > h.cfg.DataLayer.MaxResults {
-		limit = h.cfg.DataLayer.MaxResults
-	}
-
-	var response data.VersionsResponse
-
-	var versions []data.Version
-
-	result := h.pd.RODB().
-		Where("application_id = ?", applicationid).
-		Limit(limit).
-		Offset(skip).
-		Order("id").
-		Find(&versions) // Finds all application entries
-
-	if result.Error != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			result.Error,
-			requestid,
-			r,
-			&w,
-			span)
+	if err := utilities.CopyMatchingFields(version, &oRespConn); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONEncodingFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	response.Total = len(versions)
-	response.Skip = skip
-	response.Limit = limit
-	if response.Total == 0 {
-		response.Versions = ([]data.VersionResponseWrapper{})
-	} else {
-		for _, value := range versions {
-			var oRespConn data.VersionResponseWrapper
-			_ = utilities.CopyMatchingFields(value, &oRespConn)
-			response.Versions = append(response.Versions, oRespConn)
+	h.writeResponse(w, cl, oRespConn, span)
+}
+
+func (h *ApplicationHandler) fetchVersions(applicationid string, limit int, skip int) ([]data.Version, error) {
+	var versions []data.Version
+	result := h.pd.RODB().Where("application_id = ?", applicationid).Limit(limit).Offset(skip).Order("version_number").Find(&versions)
+	return versions, result.Error
+}
+
+func (h *ApplicationHandler) buildVersionsResponse(versions []data.Version, limit, skip int) (*data.VersionsResponse, error) {
+	response := data.VersionsResponse{
+		Total:    len(versions),
+		Limit:    limit,
+		Skip:     skip,
+		Versions: make([]data.VersionResponseWrapper, 0, len(versions)),
+	}
+
+	for _, app := range versions {
+		var wrapped data.VersionResponseWrapper
+
+		if err := utilities.CopyMatchingFields(app, &wrapped); err != nil {
+			return nil, err
 		}
+		response.Versions = append(response.Versions, wrapped)
 	}
+	return &response, nil
+}
 
-	err := json.NewEncoder(w).Encode(response)
+func (h *ApplicationHandler) GetVersions(w http.ResponseWriter, r *http.Request) {
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
+	defer span.End()
 
+	vars := r.URL.Query()
+	limit := h.parseQueryParam(vars, "limit", h.list_limit, h.cfg.DataLayer.MaxResults)
+	skip := h.parseQueryParam(vars, "skip", 0, math.MaxInt32)
+	applicationid, _ := h.validateApplicationID(r, cl, w, span)
+
+	versions, err := h.fetchVersions(applicationid, limit, skip)
 	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
+		return
 	}
+
+	response, err := h.buildVersionsResponse(versions, limit, skip)
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
+
+	h.writeResponse(w, cl, response, span)
 
 }
 
 func (h *ApplicationHandler) SetVersionState(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) ArchiveVersion(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	err := helper.ErrNotImplemented
-
-	helper.ReturnError(
-		cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		err,
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) validateVersion(applicationid string, versionNumber string) (*data.Version, int, helper.ErrorTypeEnum, error) {
 	version, httpStatus, helperError, err := h.getVersion(applicationid, versionNumber)
 
-	if err == nil {
+	if err != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorApplicationIDInvalid, err
+	} else {
 		if !version.PackageUploaded {
 			return nil, http.StatusBadRequest, helper.ErrorPackageNotUploaded, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorPackageNotUploaded].Error())
 		} else {
@@ -267,9 +138,8 @@ func (h *ApplicationHandler) validateVersion(applicationid string, versionNumber
 			}
 
 		}
+		return version, httpStatus, helperError, nil
 	}
-
-	return version, httpStatus, helperError, nil
 }
 
 func (h *ApplicationHandler) getVersion(applicationid string, versionNumber string) (*data.Version, int, helper.ErrorTypeEnum, error) {
@@ -308,156 +178,206 @@ func (h *ApplicationHandler) getCommandOutput(applicationid string, versionNumbe
 	return &a, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) VersionExecIacCommand(w http.ResponseWriter, r *http.Request, command string, action uuid.UUID) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+func (h *ApplicationHandler) VersionExecIacCommandSync(applicationid string, versionNumber string, command string, action data.ActionTypeEnum, ctx context.Context) error {
+
+	_, version, creds, err := h.prepareExecution(ctx, applicationid, versionNumber)
+	if err != nil {
+		return err
+	}
+
+	dockerCommand := h.buildDockerCommand(version.PackagePath, creds, command, action)
+
+	if action == data.Apply {
+		version.DemoStatus = data.Demo_Starting
+	} else if action == data.Destroy {
+		version.DemoStatus = data.Demo_Stopping
+	}
+
+	stdout, stderr, err := h.ExecuteCommandSync(version, dockerCommand, action, creds.Latency, ctx)
+	var errorCode string
+	var status data.ActionStatusTypeEnum
+	if err != nil {
+		errorCode = err.Error()
+		status = data.Failed
+	} else {
+		status = data.Successful
+	}
+
+	result := utilities.InitializeAuditRecordSync(version, command, action, "", status, stdout, stderr, errorCode)
+
+	if err := utilities.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *ApplicationHandler) VersionExecIacCommandAsync(w http.ResponseWriter, r *http.Request, command string, action data.ActionTypeEnum) error {
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	applicationID := mux.Vars(r)["applicationid"]
+	versionNumber := mux.Vars(r)["versionnumber"]
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	var httpStatus int
-	var helperErr helper.ErrorTypeEnum
-	var err error
-	var application *data.Application
-	var version *data.Version
-	var creds *data.CredsAWSConnectionResponse
-
-	application, httpStatus, helperErr, err = h.validateApplication(mux.Vars(r)["applicationid"])
-
-	if err == nil {
-		version, httpStatus, helperErr, err = h.validateVersion(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"])
-	}
-
-	if err == nil {
-		creds, err = h.generateAWSCreds(application.ConnectionID, ctx)
-	}
-
-	if err == nil {
-		//strCommand := fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_DEFAULT_REGION=us-east-2 my_terragrunt:latest "%s"`,
-		var strCommand string
-
-		if (action == data.Apply) || (action == data.Destroy) || (action == data.Plan) {
-			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_SESSION_TOKEN=%s my_terragrunt:latest "%s"`,
-				version.PackagePath,
-				creds.Data.AccessKey,
-				creds.Data.SecretKey,
-				creds.Data.SessionToken,
-				command)
-
-		} else {
-			strCommand = fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir my_terragrunt:latest "%s"`,
-				version.PackagePath,
-				command)
-		}
-
-		cmd := exec.Command("bash", "-c", strCommand)
-
-		var stdoutBuf, stderrBuf bytes.Buffer
-		cmd.Stdout = &stdoutBuf
-		cmd.Stderr = &stderrBuf
-
-		result := &data.AuditRecord{
-			ID:              uuid.New(),
-			ExecutionID:     uuid.New(),
-			VersionID:       version.ID,
-			ApplicationID:   version.ApplicationID,
-			VersionNumber:   version.VersionNumber,
-			ExecutionStatus: data.InProcess,
-			StartTime:       time.Now(),
-			Command:         command,
-			//FullCommand:     "strCommand",
-			Done:      make(chan bool, 1),
-			Action:    action,
-			RequestID: uuid.MustParse(requestid),
-		}
-
-		err := utilities.CreateObject(h.pd.RWDB(), &result, ctx, h.cfg.Server.PrefixMain)
-
-		if err != nil {
-			helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-		}
-
-		// Run the command in a separate goroutine
-		go func(result *data.AuditRecord, latency int, ctx context.Context) {
-			defer close(result.Done)
-			if latency > 0 {
-				time.Sleep(10 * time.Second)
-			}
-
-			err := cmd.Run()
-			result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
-			result.Error = utilities.StripEscapeSequences(stderrBuf.String())
-			if err != nil {
-				result.ErrorCode = err.Error()
-				result.Status = data.Failed
-			} else {
-				result.Status = data.Successful
-			}
-			result.ExecutionStatus = data.Completed
-			result.EndTime = time.Now()
-
-			err = utilities.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain)
-
-			if err != nil {
-				helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-			}
-		}(result, creds.Latency, ctx)
-
-		var resp data.AuditRecordWrapper
-
-		_ = utilities.CopyMatchingFields(result, &resp)
-
-		err = json.NewEncoder(w).Encode(&resp)
-
-		if err != nil {
-			helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-		}
-
-		return
-	}
-
+	_, version, creds, err := h.prepareExecution(ctx, applicationID, versionNumber)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return err
+	}
+
+	dockerCommand := h.buildDockerCommand(version.PackagePath, creds, command, action)
+
+	if action == data.Apply {
+		version.DemoStatus = data.Demo_Starting
+	} else if action == data.Destroy {
+		version.DemoStatus = data.Demo_Stopping
+	}
+
+	result := utilities.InitializeAuditRecordAsync(version, command, action, requestid)
+
+	if err := utilities.CreateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorFailedToCreateAuditRecord, err, requestid, r, &w, span)
+		return err
+	}
+
+	go h.executeCommandAsync(version, dockerCommand, action, result, creds.Latency, ctx, cl, w, r, span, requestid)
+
+	h.respondWithAuditRecord(w, cl, result, span)
+
+	return nil
+}
+
+// prepareExecution validates and retrieves application, version, and AWS credentials.
+func (h *ApplicationHandler) prepareExecution(ctx context.Context, applicationID string, versionNumber string) (*data.Application, *data.Version, *data.CredsAWSConnectionResponse, error) {
+	application, _, _, err := h.validateApplication(applicationID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	version, _, _, err := h.validateVersion(applicationID, versionNumber)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	creds, err := h.generateAWSCreds(application.ConnectionID, ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return application, version, creds, nil
+}
+
+// buildDockerCommand constructs the appropriate Docker command string.
+func (h *ApplicationHandler) buildDockerCommand(packagePath string, creds *data.CredsAWSConnectionResponse, command string, action data.ActionTypeEnum) string {
+	if action == data.Apply || action == data.Destroy || action == data.Plan {
+		return fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_SESSION_TOKEN=%s my_terragrunt:latest "%s"`,
+			packagePath, creds.Data.AccessKey, creds.Data.SecretKey, creds.Data.SessionToken, command)
+	}
+	return fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir my_terragrunt:latest "%s"`,
+		packagePath, command)
+}
+
+// executeCommandAsync runs the Docker command asynchronously and updates the audit record.
+func (h *ApplicationHandler) executeCommandAsync(v *data.Version, command string, action data.ActionTypeEnum, result *data.AuditRecord, latency int, ctx context.Context, cl *slog.Logger, w http.ResponseWriter, r *http.Request, span trace.Span, requestID string) {
+	defer close(result.Done)
+
+	if latency > 0 {
+		time.Sleep(time.Duration(latency) * time.Second)
+	}
+
+	cmd := exec.Command("bash", "-c", command)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	err := cmd.Run()
+	result.Output = utilities.StripEscapeSequences(stdoutBuf.String())
+	result.Error = utilities.StripEscapeSequences(stderrBuf.String())
+	if err != nil {
+		result.ErrorCode = err.Error()
+		result.Status = data.Failed
+
+		if action == data.Apply {
+			v.DemoStatus = data.Demo_FailedToStart
+			v.DemoStartTime = time.Time{}
+		} else if action == data.Destroy {
+			v.DemoStatus = data.Demo_FailedToStop
+		}
+
+	} else {
+		result.Status = data.Successful
+
+		if action == data.Apply {
+			v.DemoStatus = data.Demo_Running
+			v.DemoStartTime = time.Now()
+			v.DemoActualEndTime = time.Time{}
+		} else if action == data.Destroy {
+			v.DemoStatus = data.Demo_Stopped
+			v.DemoActualEndTime = time.Now()
+		}
+	}
+
+	result.ExecutionStatus = data.Completed
+	result.EndTime = time.Now()
+
+	if err := utilities.UpdateObject(h.pd.RWDB(), result, ctx, h.cfg.Server.PrefixMain); err != nil {
+		helper.LogError(cl, helper.ErrorDatastoreSaveFailed, err, span)
 	}
 }
 
-func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request, ctx context.Context) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+// executeCommandAsync runs the Docker command synchronously and updates the audit record.
+func (h *ApplicationHandler) ExecuteCommandSync(v *data.Version, command string, action data.ActionTypeEnum, latency int, ctx context.Context) (string, string, error) {
+	var stdout string
+	var stderr string
+
+	if latency > 0 {
+		time.Sleep(time.Duration(latency) * time.Second)
+	}
+
+	cmd := exec.Command("bash", "-c", command)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	commandErr := cmd.Run()
+	stdout = utilities.StripEscapeSequences(stdoutBuf.String())
+	stderr = utilities.StripEscapeSequences(stderrBuf.String())
+
+	return stdout, stderr, commandErr
+}
+
+// respondWithAuditRecord sends the audit record as a JSON response.
+func (h *ApplicationHandler) respondWithAuditRecord(w http.ResponseWriter, cl *slog.Logger, result *data.AuditRecord, span trace.Span) {
+	var resp data.AuditRecordWrapper
+	if err := utilities.CopyMatchingFields(result, &resp); err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(&resp); err != nil {
+		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	}
+}
+
+func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request) {
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	applicationID := mux.Vars(r)["applicationid"]
+	versionNumber := mux.Vars(r)["versionnumber"]
+	executionID := mux.Vars(r)["executionid"]
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	ar, httpStatus, helperErr, err := h.getCommandOutput(mux.Vars(r)["applicationid"], mux.Vars(r)["versionnumber"], mux.Vars(r)["executionid"])
+	ar, httpStatus, helperErr, err := h.getCommandOutput(applicationID, versionNumber, executionID)
 
 	if err == nil {
 		var resp data.AuditRecordWrapper
 
-		_ = utilities.CopyMatchingFields(ar, &resp)
-
-		err = json.NewEncoder(w).Encode(&resp)
-
-		if err != nil {
+		if err := utilities.CopyMatchingFields(ar, &resp); err != nil {
 			helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONEncodingFailed, err, requestid, r, &w, span)
+			return
 		}
 
+		h.writeResponse(w, cl, resp, span)
 		return
 	}
 

@@ -2,4 +2,4 @@
 
 curl -X POST http://localhost:5679/v1/applicationmgmt/application \
     -H "Content-Type: application/json"  \
-    -d "{\"name\": \"aws_demo01_1\", \"state\": \"activated\"}" | jq
+    -d "{\"name\": \"aws_demo01_4\", \"state\": \"activated\"}" | jq

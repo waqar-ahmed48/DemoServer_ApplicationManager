@@ -139,6 +139,7 @@ func NewApplication(cfg *configuration.Config) *Application {
 
 	a.ID = uuid.New()
 	a.State = ApplicationState_Activated
+	_ = a.NewVersion()
 
 	return &a
 }

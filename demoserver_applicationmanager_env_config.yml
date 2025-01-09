@@ -52,3 +52,5 @@ otlp:
 datalayer:
   name_prefix: DemoServer_APPLICATIONMANAGER
   max_results: 10000
+aws:
+  iam_user_latency: 10

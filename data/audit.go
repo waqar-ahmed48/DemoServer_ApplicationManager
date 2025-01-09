@@ -26,7 +26,7 @@ type AuditRecord struct {
 	Error           string                `json:"error"`
 	ErrorCode       string                `json:"error_code"`
 	Done            chan bool             `json:"-" gorm:"-"`
-	Action          uuid.UUID             `json:"action" gorm:"not null;index"`
+	Action          ActionTypeEnum        `json:"action" gorm:"not null;index"`
 	UserID          uuid.UUID             `json:"userid" validate:"required" gorm:"index;not null"`
 	Status          ActionStatusTypeEnum  `json:"status" validate:"required" gorm:"index;not null"`
 	Details         string                `json:"details" validate:"required"`

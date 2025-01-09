@@ -12,13 +12,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type KeyApplicationRecord struct{}
@@ -89,129 +92,26 @@ func (h *ApplicationHandler) GetApplications(w http.ResponseWriter, r *http.Requ
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
 	vars := r.URL.Query()
+	limit := h.parseQueryParam(vars, "limit", h.list_limit, h.cfg.DataLayer.MaxResults)
+	skip := h.parseQueryParam(vars, "skip", 0, math.MaxInt32)
 
-	limit, skip := h.list_limit, 0
-
-	limit_str := vars.Get("limit")
-	if limit_str != "" {
-		limit, _ = strconv.Atoi(limit_str)
-	}
-
-	skip_str := vars.Get("skip")
-	if skip_str != "" {
-		skip, _ = strconv.Atoi(skip_str)
-	}
-
-	if limit == -1 || limit > h.cfg.DataLayer.MaxResults {
-		limit = h.cfg.DataLayer.MaxResults
-	}
-
-	var response data.ApplicationsResponse
-
-	var applications []data.Application
-
-	result := h.pd.RODB().
-		Limit(limit).
-		Offset(skip).
-		Order("name").      // Orders by the name in the application table
-		Find(&applications) // Finds all application entries
-
-	if result.Error != nil {
-		helper.ReturnError(
-			cl,
-			http.StatusInternalServerError,
-			helper.ErrorDatastoreRetrievalFailed,
-			result.Error,
-			requestid,
-			r,
-			&w,
-			span)
+	applications, err := h.fetchApplications(limit, skip)
+	if err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	response.Total = len(applications)
-	response.Skip = skip
-	response.Limit = limit
-	if response.Total == 0 {
-		response.Applications = ([]data.ApplicationResponseWrapper{})
-	} else {
-		for _, value := range applications {
-			var oRespConn data.ApplicationResponseWrapper
-			_ = utilities.CopyMatchingFields(value, &oRespConn)
-			response.Applications = append(response.Applications, oRespConn)
-		}
-	}
-
-	err := json.NewEncoder(w).Encode(response)
-
+	response, err := h.buildApplicationsResponse(applications, limit, skip)
 	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
 	}
-}
 
-func (h ApplicationHandler) MVApplicationsGet(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-
-		tr := otel.Tracer(h.cfg.Server.PrefixMain)
-		_, span := tr.Start(r.Context(), utilities.GetFunctionName())
-		defer span.End()
-
-		// Add trace context to the logger
-		traceLogger := h.l.With(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		requestid, cl := helper.PrepareContext(r, &rw, traceLogger)
-
-		vars := r.URL.Query()
-
-		limit_str := vars.Get("limit")
-		if limit_str != "" {
-			limit, err := strconv.Atoi(limit_str)
-			if err != nil {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForLimit, err, requestid, r, &rw, span)
-				return
-			}
-
-			if limit <= 0 {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorLimitMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
-				return
-			}
-		}
-
-		skip_str := vars.Get("skip")
-		if skip_str != "" {
-			skip, err := strconv.Atoi(skip_str)
-			if err != nil {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorInvalidValueForSkip, err, requestid, r, &rw, span)
-				return
-			}
-
-			if skip < 0 {
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorSkipMustBeGtZero, fmt.Errorf("no internal error"), requestid, r, &rw, span)
-				return
-			}
-		}
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(rw, r)
-	})
+	h.writeResponse(w, cl, response, span)
 }
 
 // GetApplication returns Application resource based on applicationid parameter
@@ -251,35 +151,23 @@ func (h *ApplicationHandler) GetApplication(w http.ResponseWriter, r *http.Reque
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	application, httpStatus, helperErr, err := h.getApplication(mux.Vars(r)["applicationid"])
-
+	applicationID := mux.Vars(r)["applicationid"]
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreRetrievalFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(application, &resp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
 	}
+
+	h.writeResponse(w, cl, resp, span)
 }
 
 func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Request) {
@@ -322,101 +210,30 @@ func (h *ApplicationHandler) UpdateApplication(w http.ResponseWriter, r *http.Re
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	patch := r.Context().Value(KeyApplicationPatchParamsRecord{}).(*data.ApplicationPatchWrapper)
+	applicationID := mux.Vars(r)["applicationid"]
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	p := r.Context().Value(KeyApplicationPatchParamsRecord{}).(data.ApplicationPatchWrapper)
-	//var payload map[string]interface{}
-	//payload = r.Context().Value(KeyApplicationPatchParamsRecord{}).(map[string]interface{})
-
-	applicationid := mux.Vars(r)["applicationid"]
-
-	application, httpStatus, helperErr, err := h.getApplication(applicationid)
-
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusNotFound, helper.ErrorResourceNotFound, err, requestid, r, &w, span)
 		return
 	}
 
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
+	if err := h.updateApplication(application, *patch, ctx); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+		return
 	}
 
-	err = utilities.CopyMatchingFields(p, application)
-
-	if err != nil {
-		tx.Rollback()
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(application, &resp); err != nil {
 		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	err = utilities.UpdateObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain)
-
-	if err != nil {
-		tx.Rollback()
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	if p.ConnectionID != nil {
-		if application.ConnectionID != *p.ConnectionID {
-			if application.ConnectionID != "" {
-				err := h.unlinkAppFromConnection(application, ctx)
-
-				if err != nil {
-					tx.Rollback()
-					helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToUnlinkFromConnection, err, requestid, r, &w, span)
-					return
-				}
-			}
-
-			err := h.linkAppToConnection(applicationid, *p.ConnectionID, ctx)
-
-			if err != nil {
-				tx.Rollback()
-				helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
-				return
-			}
-		}
-	}
-
-	err = tx.Commit().Error
-
-	if err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
-		return
-	}
-
-	application, httpStatus, helperErr, err = h.getApplication(applicationid)
-
-	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
-		return
-	}
-
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
-
-	err = json.NewEncoder(w).Encode(oRespConn)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
+	h.writeResponse(w, cl, &resp, span)
 }
 
 // DeleteApplication deletes the Application from datastore
@@ -456,26 +273,13 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	applicationid := mux.Vars(r)["applicationid"]
-
-	application, httpStatus, helperErr, err := h.getApplication(applicationid)
-
+	applicationID := mux.Vars(r)["applicationid"]
+	application, err := h.fetchApplication(applicationID)
 	if err != nil {
-		helper.ReturnError(cl, httpStatus, helperErr, err, requestid, r, &w, span)
+		helper.ReturnError(cl, http.StatusNotFound, helper.ErrorResourceNotFound, err, requestid, r, &w, span)
 		return
 	}
 
@@ -484,70 +288,15 @@ func (h *ApplicationHandler) DeleteApplication(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	err = h.deleteApplication(application, ctx)
-
-	if err != nil {
-		helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
+	if err := h.deleteApplication(application, ctx); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreDeleteFailed, err, requestid, r, &w, span)
 		return
 	}
 
-	var response data.DeleteApplicationResponse
-	response.StatusCode = http.StatusNoContent
-	response.Status = http.StatusText(response.StatusCode)
-
-	err = json.NewEncoder(w).Encode(response)
-
-	if err != nil {
-		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
-	}
-}
-
-func (h *ApplicationHandler) deleteApplication(a *data.Application, ctx context.Context) error {
-
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(ctx, utilities.GetFunctionName())
-	defer span.End()
-
-	// Begin a transaction
-	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
-	if tx.Error != nil {
-		return tx.Error
-	}
-
-	// Unlink from connection
-	err := h.unlinkAppFromConnection(a, ctx)
-
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to unlink connection: %w", err)
-	}
-
-	// Delete from applications
-	if err := tx.Exec("DELETE FROM audit_records WHERE application_id = ?", a.ID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to purge audit_records: %w", err)
-	}
-
-	// Delete from applications
-	if err := tx.Exec("DELETE FROM versions WHERE application_id = ?", a.ID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to purge versions: %w", err)
-	}
-
-	// Delete from applications
-	if err := tx.Exec("DELETE FROM applications WHERE id = ?", a.ID).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete application: %w", err)
-	}
-
-	// Commit the transaction
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	h.writeResponse(w, cl, data.DeleteApplicationResponse{
+		StatusCode: http.StatusNoContent,
+		Status:     http.StatusText(http.StatusNoContent),
+	}, span)
 }
 
 func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Request) {
@@ -585,118 +334,176 @@ func (h *ApplicationHandler) AddApplication(w http.ResponseWriter, r *http.Reque
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	ctx, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
+	newApp := data.NewApplication(h.cfg)
+	newApp.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
 
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
+	postWrapper := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
+	if err := utilities.CopyMatchingFields(postWrapper, newApp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
 
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
+	if err := utilities.CreateObject(h.pd.RWDB(), &newApp, ctx, h.cfg.Server.PrefixMain); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, err, requestid, r, &w, span)
+		return
+	}
 
-	p := r.Context().Value(KeyApplicationRecord{}).(*data.ApplicationPostWrapper)
+	var resp data.ApplicationResponseWrapper
+	if err := utilities.CopyMatchingFields(newApp, &resp); err != nil {
+		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorJSONDecodingFailed, err, requestid, r, &w, span)
+		return
+	}
 
-	a := data.NewApplication(h.cfg)
-	_ = a.NewVersion()
+	h.writeResponse(w, cl, &resp, span)
+}
 
-	utilities.CopyMatchingFields(p, a)
+func (h *ApplicationHandler) parseQueryParam(vars url.Values, key string, defaultValue, maxValue int) int {
+	valueStr := vars.Get(key)
+	if valueStr != "" {
+		value, err := strconv.Atoi(valueStr)
+		if err == nil && value >= 0 {
+			return int(math.Min(float64(value), float64(maxValue)))
+		}
+	}
+	return defaultValue
+}
 
-	//set dummy ownerid for now.
-	a.OwnerID = "e7a82149-907d-4ebf-8c12-d2748e0dc0d9"
+func (h *ApplicationHandler) fetchApplications(limit, skip int) ([]data.Application, error) {
+	var applications []data.Application
+	result := h.pd.RODB().Limit(limit).Offset(skip).Order("name").Find(&applications)
+	return applications, result.Error
+}
 
-	// Begin a transaction
+func (h *ApplicationHandler) fetchApplication(applicationID string) (*data.Application, error) {
+	var application data.Application
+	var err error
+	result := h.pd.RODB().First(&application, "id = ?", applicationID)
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("application not found")
+	}
+
+	if application.Versions, err = h.fetchVersions(applicationID, h.list_limit, 0); err != nil {
+		return nil, err
+	}
+
+	return &application, result.Error
+}
+
+func (h *ApplicationHandler) updateApplication(application *data.Application, patch data.ApplicationPatchWrapper, ctx context.Context) error {
 	tx := h.pd.RWDB().Begin()
-
-	// Check if the transaction started successfully
 	if tx.Error != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
-		return
+		return tx.Error
 	}
 
-	err := utilities.CreateObject(h.pd.RWDB(), &a, r.Context(), h.cfg.Server.PrefixMain)
+	//ConnectionID is being patched. Have to link/unlink with ConnectionManager Microservice as well.
+	if patch.ConnectionID != nil {
+		if *patch.ConnectionID != "" {
+			if application.ConnectionID != "" {
+				pc, err := h.getGenericConnectionID(application.ConnectionID, ctx)
+				if err != nil {
+					tx.Rollback()
+					return err
+				}
 
-	if err != nil {
-		tx.Rollback()
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
-		return
-	}
+				if err := h.unlinkAppFromConnection(application.ID.String(), pc, ctx); err != nil {
+					tx.Rollback()
+					return err
+				}
+			}
 
-	if a.ConnectionID != "" {
-		err := h.linkAppToConnection(a.ID.String(), a.ConnectionID, ctx)
+			pc, err := h.getGenericConnectionID(*patch.ConnectionID, ctx)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
 
-		if err != nil {
+			if err := h.linkAppToConnection(application.ID.String(), pc, ctx); err != nil {
+				tx.Rollback()
+				return err
+			}
+		} else {
 			tx.Rollback()
-			helper.ReturnError(cl, http.StatusBadRequest, helper.ErrorApplicationFailedToLinkConnection, err, requestid, r, &w, span)
-			return
+			return helper.ErrorDictionary[helper.ErrorApplicationIDInvalid].Error()
 		}
 	}
 
-	err = tx.Commit().Error
-
-	if err != nil {
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorDatastoreSaveFailed, tx.Error, requestid, r, &w, span)
-		return
+	if err := utilities.CopyMatchingFields(patch, application); err != nil {
+		tx.Rollback()
+		return err
 	}
 
-	applicationid := a.ID
-	application, httpStatus, helperErr, err := h.getApplication(applicationid.String())
-
-	if err != nil {
-		helper.ReturnError(cl,
-			httpStatus,
-			helperErr,
-			err,
-			requestid,
-			r,
-			&w,
-			span)
-		return
+	if err := utilities.UpdateObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain); err != nil {
+		tx.Rollback()
 	}
 
-	var oRespConn data.ApplicationResponseWrapper
-	_ = utilities.CopyMatchingFields(application, &oRespConn)
+	tx.Commit()
 
-	err = json.NewEncoder(w).Encode(oRespConn)
+	return nil
+}
 
-	if err != nil {
+func (h *ApplicationHandler) deleteApplication(application *data.Application, ctx context.Context) error {
+	tx := h.pd.RWDB().Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+
+	for _, version := range application.Versions {
+		err := utilities.DeleteObjectWithoutTx(tx, &version, ctx, h.cfg.Server.PrefixMain)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := utilities.DeleteObjectWithoutTx(tx, application, ctx, h.cfg.Server.PrefixMain); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete application: %w", err)
+	}
+
+	return tx.Commit().Error
+}
+
+func (h *ApplicationHandler) buildApplicationsResponse(applications []data.Application, limit, skip int) (*data.ApplicationsResponse, error) {
+	response := data.ApplicationsResponse{
+		Total:        len(applications),
+		Limit:        limit,
+		Skip:         skip,
+		Applications: make([]data.ApplicationResponseWrapper, 0, len(applications)),
+	}
+
+	for _, app := range applications {
+		var wrapped data.ApplicationResponseWrapper
+
+		if err := utilities.CopyMatchingFields(app, &wrapped); err != nil {
+			return nil, err
+		}
+		response.Applications = append(response.Applications, wrapped)
+	}
+	return &response, nil
+}
+
+func (h *ApplicationHandler) writeResponse(w http.ResponseWriter, cl *slog.Logger, data interface{}, span trace.Span) {
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		helper.LogError(cl, helper.ErrorJSONEncodingFailed, err, span)
 	}
 }
 
 func (h *ApplicationHandler) QueryAudit(w http.ResponseWriter, r *http.Request) {
-	tr := otel.Tracer(h.cfg.Server.PrefixMain)
-	_, span := tr.Start(r.Context(), utilities.GetFunctionName())
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
-	// Add trace context to the logger
-	traceLogger := h.l.With(
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
-	)
-
-	requestid, cl := helper.PrepareContext(r, &w, traceLogger)
-
-	helper.LogInfo(cl, helper.InfoHandlingRequest, helper.ErrNone, span)
-
-	helper.ReturnError(cl,
-		http.StatusInternalServerError,
-		helper.ErrorNotImplemented,
-		fmt.Errorf("operation not implemented yet"),
-		requestid,
-		r,
-		&w,
-		span)
+	helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &w, span)
 }
 
 func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
 	application, httpStatus, helperError, err := h.getApplication(applicationid)
 
-	if err == nil {
+	if err != nil {
+		return nil, http.StatusInternalServerError, helper.ErrorApplicationIDInvalid, err
+	} else {
 		if application.ConnectionID == "" {
 			return nil, http.StatusBadRequest, helper.ErrorConnectionMissing, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorConnectionMissing].Error())
 		}
@@ -704,9 +511,8 @@ func (h *ApplicationHandler) validateApplication(applicationid string) (*data.Ap
 		if application.State != data.ApplicationState_Activated {
 			return nil, http.StatusNotAcceptable, helper.ErrorApplicationUnexpectedState, fmt.Errorf("%s", helper.ErrorDictionary[helper.ErrorApplicationUnexpectedState].Error())
 		}
+		return application, httpStatus, helperError, nil
 	}
-
-	return application, httpStatus, helperError, nil
 }
 
 func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.Context) (*data.CredsAWSConnectionResponse, error) {
@@ -714,60 +520,12 @@ func (h *ApplicationHandler) generateAWSCreds(connectionid string, ctx context.C
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
 	defer span.End()
 
-	var prefixHTTP string
-
-	c := http.Client{
-		Transport: otelhttp.NewTransport(http.DefaultTransport),
-		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
-	}
-
-	if h.cfg.ConnectionManager.HTTPS {
-		prefixHTTP = "https://"
-	} else {
-		prefixHTTP = "http://"
-	}
-
-	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid + "/creds"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-
+	resp, err := h.vh.GenerateCredsAWSSecretsEngine(h.cfg.Vault.PathPrefix+"/aws_"+connectionid, ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.Do(req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp == nil {
-		err = fmt.Errorf("response object is nil")
-		return nil, err
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
-		return nil, err
-	}
-
-	b, _ := io.ReadAll(resp.Body)
-
-	var rc data.CredsAWSConnectionResponse
-
-	err = json.Unmarshal(b, &rc)
-	if err != nil {
-		return nil, err
-	}
-
-	if rc.Data.AccessKey == "" || rc.Data.SecretKey == "" {
-		err = fmt.Errorf("creds not generated")
-		return nil, err
-	}
-
-	return &rc, nil
+	return resp, nil
 }
 
 func (h *ApplicationHandler) getApplication(applicationid string) (*data.Application, int, helper.ErrorTypeEnum, error) {
@@ -833,11 +591,7 @@ func (h *ApplicationHandler) linkAppToConnection(applicationid string, connectio
 	return nil
 }
 
-func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Application, ctx context.Context) error {
-
-	if application.ConnectionID == "" {
-		return nil
-	}
+func (h *ApplicationHandler) getGenericConnectionID(connectionid string, ctx context.Context) (string, error) {
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
@@ -856,7 +610,67 @@ func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Applicati
 		prefixHTTP = "http://"
 	}
 
-	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + application.ConnectionID + "/unlink/" + application.ID.String()
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return "", err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return "", err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return "", err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var r data.AWSConnectionResponseWrapper
+
+	err = json.Unmarshal(body, &r)
+	if err != nil {
+		return "", err
+	}
+
+	return r.Connection.ID.String(), nil
+}
+
+func (h *ApplicationHandler) unlinkAppFromConnection(applicationid string, connectionid string, ctx context.Context) error {
+
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + connectionid + "/unlink/" + applicationid
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 
 	if err != nil {
