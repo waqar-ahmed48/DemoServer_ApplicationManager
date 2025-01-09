@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -401,13 +402,25 @@ func (h *ApplicationHandler) updateApplication(application *data.Application, pa
 	if patch.ConnectionID != nil {
 		if *patch.ConnectionID != "" {
 			if application.ConnectionID != "" {
-				if err := h.unlinkAppFromConnection(application, ctx); err != nil {
+				pc, err := h.getGenericConnectionID(application.ConnectionID, ctx)
+				if err != nil {
+					tx.Rollback()
+					return err
+				}
+
+				if err := h.unlinkAppFromConnection(application.ID.String(), pc, ctx); err != nil {
 					tx.Rollback()
 					return err
 				}
 			}
 
-			if err := h.linkAppToConnection(application.ID.String(), *patch.ConnectionID, ctx); err != nil {
+			pc, err := h.getGenericConnectionID(*patch.ConnectionID, ctx)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			if err := h.linkAppToConnection(application.ID.String(), pc, ctx); err != nil {
 				tx.Rollback()
 				return err
 			}
@@ -578,11 +591,7 @@ func (h *ApplicationHandler) linkAppToConnection(applicationid string, connectio
 	return nil
 }
 
-func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Application, ctx context.Context) error {
-
-	if application.ConnectionID == "" {
-		return nil
-	}
+func (h *ApplicationHandler) getGenericConnectionID(connectionid string, ctx context.Context) (string, error) {
 
 	tr := otel.Tracer(h.cfg.Server.PrefixMain)
 	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
@@ -601,7 +610,67 @@ func (h *ApplicationHandler) unlinkAppFromConnection(application *data.Applicati
 		prefixHTTP = "http://"
 	}
 
-	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + application.ConnectionID + "/unlink/" + application.ID.String()
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/aws/" + connectionid
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return "", err
+	}
+
+	if resp == nil {
+		err = fmt.Errorf("response object is nil")
+		return "", err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("HTTP status code NOK. %d", resp.StatusCode)
+		return "", err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var r data.AWSConnectionResponseWrapper
+
+	err = json.Unmarshal(body, &r)
+	if err != nil {
+		return "", err
+	}
+
+	return r.Connection.ID.String(), nil
+}
+
+func (h *ApplicationHandler) unlinkAppFromConnection(applicationid string, connectionid string, ctx context.Context) error {
+
+	tr := otel.Tracer(h.cfg.Server.PrefixMain)
+	ctx, span := tr.Start(ctx, utilities.GetFunctionName())
+	defer span.End()
+
+	var prefixHTTP string
+
+	c := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   time.Duration(h.cfg.ConnectionManager.Timeout) * time.Second,
+	}
+
+	if h.cfg.ConnectionManager.HTTPS {
+		prefixHTTP = "https://"
+	} else {
+		prefixHTTP = "http://"
+	}
+
+	url := prefixHTTP + h.cfg.ConnectionManager.Host + ":" + strconv.Itoa(h.cfg.ConnectionManager.Port) + "/v1/connectionmgmt/connection/" + connectionid + "/unlink/" + applicationid
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 
 	if err != nil {

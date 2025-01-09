@@ -152,10 +152,16 @@ func (h ApplicationHandler) MVRefresh(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVDestroy(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
+		_, span, _, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
+			return
+		}
+
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
+			return
+		}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -165,10 +171,16 @@ func (h ApplicationHandler) MVDestroy(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVApply(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
+		_, span, _, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
+			return
+		}
+
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
+			return
+		}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -178,10 +190,16 @@ func (h ApplicationHandler) MVApply(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVPlan(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
+		_, span, _, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
+			return
+		}
+
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
+			return
+		}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -191,10 +209,16 @@ func (h ApplicationHandler) MVPlan(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVValidate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
+		_, span, _, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
+			return
+		}
+
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
+			return
+		}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)
@@ -217,10 +241,16 @@ func (h ApplicationHandler) MVHclValidate(next http.Handler) http.Handler {
 func (h ApplicationHandler) MVGetIacCommandResult(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 
-		_, span, requestid, cl := h.setupTraceAndLogger(r, rw)
+		_, span, _, cl := h.setupTraceAndLogger(r, rw)
 		defer span.End()
 
-		helper.ReturnError(cl, http.StatusInternalServerError, helper.ErrorNotImplemented, fmt.Errorf("operation not implemented yet"), requestid, r, &rw, span)
+		if _, valid := h.validateApplicationID(r, cl, rw, span); !valid {
+			return
+		}
+
+		if _, valid := h.validateVersionNumber(r, cl, rw, span); !valid {
+			return
+		}
 
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(rw, r)

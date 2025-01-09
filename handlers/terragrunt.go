@@ -82,7 +82,7 @@ func (h *ApplicationHandler) Fmt(w http.ResponseWriter, r *http.Request) {
 
 func (h *ApplicationHandler) GetIacCommandResult(w http.ResponseWriter, r *http.Request) {
 
-	h.VersionIacCommandResult(w, r, r.Context())
+	h.VersionIacCommandResult(w, r)
 }
 
 func (h *ApplicationHandler) Init(w http.ResponseWriter, r *http.Request) {

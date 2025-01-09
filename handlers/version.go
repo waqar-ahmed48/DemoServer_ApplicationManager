@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -179,7 +178,7 @@ func (h *ApplicationHandler) getCommandOutput(applicationid string, versionNumbe
 	return &a, http.StatusOK, helper.ErrorNone, nil
 }
 
-func (h *ApplicationHandler) VersionExecIacCommandSync(applicationid string, versionNumber string, command string, action uuid.UUID, ctx context.Context) error {
+func (h *ApplicationHandler) VersionExecIacCommandSync(applicationid string, versionNumber string, command string, action data.ActionTypeEnum, ctx context.Context) error {
 
 	_, version, creds, err := h.prepareExecution(ctx, applicationid, versionNumber)
 	if err != nil {
@@ -213,7 +212,7 @@ func (h *ApplicationHandler) VersionExecIacCommandSync(applicationid string, ver
 	return nil
 }
 
-func (h *ApplicationHandler) VersionExecIacCommandAsync(w http.ResponseWriter, r *http.Request, command string, action uuid.UUID) error {
+func (h *ApplicationHandler) VersionExecIacCommandAsync(w http.ResponseWriter, r *http.Request, command string, action data.ActionTypeEnum) error {
 	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
@@ -269,7 +268,7 @@ func (h *ApplicationHandler) prepareExecution(ctx context.Context, applicationID
 }
 
 // buildDockerCommand constructs the appropriate Docker command string.
-func (h *ApplicationHandler) buildDockerCommand(packagePath string, creds *data.CredsAWSConnectionResponse, command string, action uuid.UUID) string {
+func (h *ApplicationHandler) buildDockerCommand(packagePath string, creds *data.CredsAWSConnectionResponse, command string, action data.ActionTypeEnum) string {
 	if action == data.Apply || action == data.Destroy || action == data.Plan {
 		return fmt.Sprintf(`docker run --rm -v %s:/workdir -w /workdir -e AWS_ACCESS_KEY_ID=%s -e AWS_SECRET_ACCESS_KEY=%s -e AWS_SESSION_TOKEN=%s my_terragrunt:latest "%s"`,
 			packagePath, creds.Data.AccessKey, creds.Data.SecretKey, creds.Data.SessionToken, command)
@@ -279,7 +278,7 @@ func (h *ApplicationHandler) buildDockerCommand(packagePath string, creds *data.
 }
 
 // executeCommandAsync runs the Docker command asynchronously and updates the audit record.
-func (h *ApplicationHandler) executeCommandAsync(v *data.Version, command string, action uuid.UUID, result *data.AuditRecord, latency int, ctx context.Context, cl *slog.Logger, w http.ResponseWriter, r *http.Request, span trace.Span, requestID string) {
+func (h *ApplicationHandler) executeCommandAsync(v *data.Version, command string, action data.ActionTypeEnum, result *data.AuditRecord, latency int, ctx context.Context, cl *slog.Logger, w http.ResponseWriter, r *http.Request, span trace.Span, requestID string) {
 	defer close(result.Done)
 
 	if latency > 0 {
@@ -327,7 +326,7 @@ func (h *ApplicationHandler) executeCommandAsync(v *data.Version, command string
 }
 
 // executeCommandAsync runs the Docker command synchronously and updates the audit record.
-func (h *ApplicationHandler) ExecuteCommandSync(v *data.Version, command string, action uuid.UUID, latency int, ctx context.Context) (string, string, error) {
+func (h *ApplicationHandler) ExecuteCommandSync(v *data.Version, command string, action data.ActionTypeEnum, latency int, ctx context.Context) (string, string, error) {
 	var stdout string
 	var stderr string
 
@@ -360,8 +359,8 @@ func (h *ApplicationHandler) respondWithAuditRecord(w http.ResponseWriter, cl *s
 	}
 }
 
-func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request, ctx context.Context) {
-	ctx, span, requestid, cl := h.setupTraceAndLogger(r, w)
+func (h *ApplicationHandler) VersionIacCommandResult(w http.ResponseWriter, r *http.Request) {
+	_, span, requestid, cl := h.setupTraceAndLogger(r, w)
 	defer span.End()
 
 	applicationID := mux.Vars(r)["applicationid"]

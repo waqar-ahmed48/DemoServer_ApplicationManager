@@ -63,7 +63,7 @@ func CallMultiThreadedFunc(f MultiThreadedFunc, count int, threads int) {
 }
 
 // initializeAuditRecord sets up a new audit record for Async command execution
-func InitializeAuditRecordAsync(version *data.Version, command string, action uuid.UUID, requestID string) *data.AuditRecord {
+func InitializeAuditRecordAsync(version *data.Version, command string, action data.ActionTypeEnum, requestID string) *data.AuditRecord {
 	return &data.AuditRecord{
 		ID:              uuid.New(),
 		ExecutionID:     uuid.New(),
@@ -80,7 +80,7 @@ func InitializeAuditRecordAsync(version *data.Version, command string, action uu
 }
 
 // initializeAuditRecordSync sets up a new audit record for synchronous command execution
-func InitializeAuditRecordSync(version *data.Version, command string, action uuid.UUID, requestID string, status data.ActionStatusTypeEnum, os string, es string, ec string) *data.AuditRecord {
+func InitializeAuditRecordSync(version *data.Version, command string, action data.ActionTypeEnum, requestID string, status data.ActionStatusTypeEnum, os string, es string, ec string) *data.AuditRecord {
 	return &data.AuditRecord{
 		ID:              uuid.New(),
 		VersionID:       version.ID,
